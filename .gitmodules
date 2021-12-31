@@ -1,6 +1,3 @@
-[submodule "hass-backup-s3"]
-	path = hass-backup-s3
-	url = https://github.com/Rbillon59/hass-backup-s3
 [submodule "hass-n8n"]
 	path = hass-n8n
 	url = git@github.com:caraar12345/hass-n8n
