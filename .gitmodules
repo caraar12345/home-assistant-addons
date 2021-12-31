@@ -1,4 +1,4 @@
 [submodule "hass-n8n"]
-	path = hass-n8n
+  path = hass-n8n
   branch = master
-	url = git@github.com:caraar12345/hass-n8n
+  url = git@github.com:caraar12345/hass-n8n
