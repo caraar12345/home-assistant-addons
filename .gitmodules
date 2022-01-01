@@ -4,4 +4,4 @@
   url = git@github.com:caraar12345/hass-n8n
 [submodule "speedtest2mqtt"]
 	path = speedtest2mqtt
-	url = git@github.com:caraar12345/speedtest2mqtt
+	url = https://github.com/caraar12345/speedtest2mqtt
