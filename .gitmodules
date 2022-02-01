@@ -5,6 +5,3 @@
 [submodule "speedtest2mqtt"]
 	path = speedtest2mqtt
 	url = https://github.com/caraar12345/speedtest2mqtt
-[submodule "addon-portainer"]
-	path = addon-portainer
-	url = git@github.com:caraar12345/addon-portainer
