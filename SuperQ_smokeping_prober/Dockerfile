@@ -27,6 +27,4 @@ RUN tar xf /var/tmp/smokeping_prober*.tar.gz -C /var/tmp && \
     mv /var/tmp/smokeping_prober*/smokeping_prober /usr/local/bin/smokeping_prober && \
     apk del --no-cache .build-deps
 
-RUN apk --no-cache add gcc musl-dev python3-dev --virtual .build-deps
-
 ENTRYPOINT /opt/entrypoint.sh

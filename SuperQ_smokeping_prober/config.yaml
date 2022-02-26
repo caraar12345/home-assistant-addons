@@ -1,8 +1,7 @@
 name: SuperQ - smokeping_prober
-version: 0.1.0
+version: 0.1.1
 slug: smokeping_prober
 description: Prometheus style smokeping
-image: aaroncarson/hass_smokeping_prober
 arch:
   - i386
   - amd64
@@ -10,9 +9,9 @@ arch:
   - aarch64
 startup: application
 boot: auto
-apparmor: true
+host_network: true
 options:
-  targets: "['google.com', '1.1.1.1', '8.8.8.8', '213.106.255.109']"
+  targets: '["google.com", "1.1.1.1", "8.8.8.8", "213.106.255.109"]'
   interval: "1s"
   network: "ip"
   protocol: "icmp"
