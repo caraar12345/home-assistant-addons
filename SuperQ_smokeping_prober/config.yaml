@@ -1,5 +1,5 @@
 name: SuperQ - smokeping_prober
-version: 0.1.1
+version: 0.1.2
 slug: smokeping_prober
 image: aaroncarson/hass_smokeping_prober
 description: Prometheus style smokeping
