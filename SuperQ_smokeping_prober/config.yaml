@@ -1,6 +1,7 @@
 name: SuperQ - smokeping_prober
 version: 0.1.1
 slug: smokeping_prober
+image: aaroncarson/hass_smokeping_prober
 description: Prometheus style smokeping
 arch:
   - i386
