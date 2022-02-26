@@ -12,14 +12,12 @@ startup: application
 boot: auto
 host_network: true
 options:
-  targets: '["google.com", "1.1.1.1", "8.8.8.8", "213.106.255.109"]'
+  targets:
+    - "google.com" 
+    - "1.1.1.1"
+    - "8.8.8.8"
+    - "213.106.255.109"
   interval: "1s"
   network: "ip"
   protocol: "icmp"
   size: 56
-schema:
-  targets: str
-  interval: str
-  network: str
-  protocol: str
-  size: int
