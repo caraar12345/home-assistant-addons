@@ -13,11 +13,12 @@ boot: auto
 host_network: true
 options:
   targets:
-    - "google.com" 
-    - "1.1.1.1"
-    - "8.8.8.8"
-    - "213.106.255.109"
-  interval: "1s"
-  network: "ip"
-  protocol: "icmp"
-  size: 56
+    hosts:
+      - "google.com" 
+      - "1.1.1.1"
+      - "8.8.8.8"
+      - "213.106.255.109"
+    interval: "1s"
+    network: "ip"
+    protocol: "icmp"
+    size: 56
