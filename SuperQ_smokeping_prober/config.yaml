@@ -1,5 +1,5 @@
 name: SuperQ - smokeping_prober
-version: 0.1.3
+version: 0.1.4
 slug: smokeping_prober
 image: aaroncarson/hass_smokeping_prober
 description: Prometheus style smokeping
@@ -13,7 +13,7 @@ boot: auto
 host_network: true
 options:
   targets:
-    hosts:
+    - hosts:
       - "google.com" 
       - "1.1.1.1"
       - "8.8.8.8"
@@ -22,3 +22,11 @@ options:
     network: "ip"
     protocol: "icmp"
     size: 56
+schema:
+  targets:
+    - hosts:
+      - host: str
+        interval: str
+        network: str
+        protocol: str
+        size: int

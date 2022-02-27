@@ -7,6 +7,7 @@ echo ----------
 echo options.json
 cat $CONFIG_PATH
 
+echo
 echo ----------
 echo config.yml
 cat /data/config.yml 
