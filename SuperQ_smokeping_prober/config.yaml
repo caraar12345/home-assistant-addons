@@ -1,5 +1,5 @@
 name: SuperQ - smokeping_prober
-version: 0.1.4
+version: 0.1.5
 slug: smokeping_prober
 image: aaroncarson/hass_smokeping_prober
 description: Prometheus style smokeping
@@ -10,7 +10,6 @@ arch:
   - aarch64
 startup: application
 boot: auto
-host_network: true
 options:
   targets:
     - hosts:
