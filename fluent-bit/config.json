@@ -1,0 +1,19 @@
+{
+  "name": "fluent-bit",
+  "version": "1.1.2",
+  "slug": "fluent_bit",
+  "description": "Fluent-Bit log shipping",
+  "arch": ["armhf", "armv7", "aarch64", "amd64", "i386"],
+  "startup": "services",
+  "boot": "auto",
+  "docker_api": true,
+  "privileged": ["SYS_ADMIN"],
+  "options": {
+     "host": "elk",
+     "port": 8888
+   },
+  "schema": {
+    "host": "str",
+    "port": "int(1,65535)"
+  }
+}
