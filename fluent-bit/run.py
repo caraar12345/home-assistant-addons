@@ -31,7 +31,7 @@ if options['path'] != "":
     FLUENT_BIT_COMMAND.append("-p")
     FLUENT_BIT_COMMAND.append(f"Path={options['path']}")
 
-if options['tls'] == "true":
+if options['tls'] == True:
     FLUENT_BIT_COMMAND.append("-p")
     FLUENT_BIT_COMMAND.append(f"tls=on")
 
