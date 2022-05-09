@@ -1,6 +1,6 @@
 {
   "name": "fluent-bit",
-  "version": "1.2.0",
+  "version": "1.2.1",
   "slug": "fluent_bit",
   "description": "Fluent-Bit log shipping",
   "arch": ["armhf", "armv7", "aarch64", "amd64", "i386"],
@@ -18,7 +18,7 @@
   "schema": {
     "host": "str",
     "port": "int(1,65535)",
-    "path": "str",
+    "path": "str?",
     "http_user": "str",
     "http_passwd": "str"
   }
