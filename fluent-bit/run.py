@@ -25,8 +25,11 @@ FLUENT_BIT_COMMAND = [
 ]
 
 if options['path'] != "":
-    FLUENT_BIT_COMMAND.append("-p")
-    FLUENT_BIT_COMMAND.append(f"Path={options['path']}")
+    if options['path'] == "/_bulk":
+        pass
+    else:
+        FLUENT_BIT_COMMAND.append("-p")
+        FLUENT_BIT_COMMAND.append(f"Path={options['path']}")
 
 hostname = socket.gethostname().split(".")[0]
 print(f"Hostname: {hostname}")
