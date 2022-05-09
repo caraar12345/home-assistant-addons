@@ -13,13 +13,15 @@
      "port": 8888,
      "path": "/_bulk",
      "http_user": "",
-     "http_passwd": ""
+     "http_passwd": "",
+     "tls": false
    },
   "schema": {
     "host": "str",
     "port": "int(1,65535)",
     "path": "str?",
     "http_user": "str",
-    "http_passwd": "str"
+    "http_passwd": "str",
+    "tls": "bool"
   }
 }

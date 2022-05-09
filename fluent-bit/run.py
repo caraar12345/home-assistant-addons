@@ -31,6 +31,10 @@ if options['path'] != "":
     FLUENT_BIT_COMMAND.append("-p")
     FLUENT_BIT_COMMAND.append(f"Path={options['path']}")
 
+if options['tls'] == "true":
+    FLUENT_BIT_COMMAND.append("-p")
+    FLUENT_BIT_COMMAND.append(f"tls=on")
+
 hostname = socket.gethostname().split(".")[0]
 print(f"Hostname: {hostname}")
 
