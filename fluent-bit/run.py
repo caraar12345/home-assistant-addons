@@ -19,6 +19,9 @@ FLUENT_BIT_COMMAND = [
     "-o", "http",
     "-p", f"host={options['host']}",
     "-p", f"port={options['port']}",
+    "-p", f"path={options['path']}",
+    "-p", f"http_user={options['http_user']}",
+    "-p", f"http_passwd={options['http_passwd']}",
     "-p", "format=json_lines",
     "-p", "header=Content-Type application/x-ndjson",
 ]
