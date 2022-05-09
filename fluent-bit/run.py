@@ -11,6 +11,7 @@ with open("/data/options.json", "r") as options_file:
 
 CONTAINER_IMAGE = "fluent/fluent-bit" # go back to latest; sid no longer exists
 FORWARDER_CONTAINER_NAME = "addon_fluent_bit_forwarder"
+
 FLUENT_BIT_COMMAND = [
     "/fluent-bit/bin/fluent-bit",
     "-i", "systemd",
@@ -19,10 +20,13 @@ FLUENT_BIT_COMMAND = [
     "-o", "es",
     "-p", f"Host={options['host']}",
     "-p", f"Port={options['port']}",
-    "-p", f"Path={options['path']}",
     "-p", f"HTTP_User={options['http_user']}",
     "-p", f"HTTP_Passwd={options['http_passwd']}"
 ]
+
+if options['path'] != "":
+    FLUENT_BIT_COMMAND.append("-p")
+    FLUENT_BIT_COMMAND.append(f"Path={options['path']}")
 
 hostname = socket.gethostname().split(".")[0]
 print(f"Hostname: {hostname}")
