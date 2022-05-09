@@ -24,12 +24,12 @@ FLUENT_BIT_COMMAND = [
     "-p", f"HTTP_Passwd={options['http_passwd']}"
 ]
 
+if options['path'].endswith("/_bulk"):
+    options['path'] = options['path'][:-6]
+
 if options['path'] != "":
-    if options['path'] == "/_bulk":
-        pass
-    else:
-        FLUENT_BIT_COMMAND.append("-p")
-        FLUENT_BIT_COMMAND.append(f"Path={options['path']}")
+    FLUENT_BIT_COMMAND.append("-p")
+    FLUENT_BIT_COMMAND.append(f"Path={options['path']}")
 
 hostname = socket.gethostname().split(".")[0]
 print(f"Hostname: {hostname}")
