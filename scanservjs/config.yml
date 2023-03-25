@@ -24,3 +24,15 @@ host_dbus: true
 ingress: true
 ingress_port: 8080
 panel_icon: mdi:scanner
+options:
+  saned_net_hosts: ""
+  airscan_devices: ""
+  scanimage_list_ignore: false 
+  devices: ""
+  ocr_lang: "eng"
+schema:
+  saned_net_hosts: str?
+  airscan_devices: str?
+  scanimage_list_ignore: bool?
+  devices: str?
+  ocr_lang: str?
