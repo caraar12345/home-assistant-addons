@@ -1,0 +1,25 @@
+name: scanservjs
+version: v2.26.1
+slug: scanservjs
+description: scanservjs is a web UI frontend for your scanner.
+arch:
+  - armv7
+  - aarch64
+  - amd64
+startup: application
+boot: auto
+icon: icon.png
+logo: icon.png
+webui: http://[HOST]:[PORT:8080]/
+map:
+  - ssl
+  - share:rw
+apparmor: true
+ports:
+  8080/tcp: 8080
+ports_description:
+  8080/tcp: scanservjs Web interface
+host_dbus: true
+ingress: true
+ingress_port: 8080
+panel_icon: mdi:scanner
