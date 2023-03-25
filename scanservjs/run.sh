@@ -13,8 +13,9 @@ IFS='
 
 # Get a custom delimiter but default to ;
 DELIMITER=${DELIMITER:-;}
+CONFIG_PATH="/data/config.json"
 
-export SANED_NET_HOSTS=$(bashio::config 'saned_net_hosts')
+export SANED_NET_HOSTS=$(jq '.saned_net_hosts' $CONFIG_PATH)
 
 # Insert a list of net hosts
 if [ ! -z "$SANED_NET_HOSTS" ]; then
@@ -24,7 +25,7 @@ if [ ! -z "$SANED_NET_HOSTS" ]; then
   done
 fi
 
-export AIRSCAN_DEVICES=$(bashio::config 'airscan_devices')
+export AIRSCAN_DEVICES=$(jq '.airscan_devices' $CONFIG_PATH)
 
 # Insert airscan devices
 if [ ! -z "$AIRSCAN_DEVICES" ]; then
@@ -34,9 +35,9 @@ if [ ! -z "$AIRSCAN_DEVICES" ]; then
   done
 fi
 
-export SCANIMAGE_LIST_IGNORE=$(bashio::config 'scanimage_list_ignore')
-export DEVICES=$(bashio::config 'devices')
-export OCR_LANG=$(bashio::config 'ocr_lang')
+export SCANIMAGE_LIST_IGNORE=$(jq '.scanimage_list_ignore' $CONFIG_PATH)
+export DEVICES=$(jq '.devices' $CONFIG_PATH)
+export OCR_LANG=jq '.ocr_lang' $CONFIG_PATH
 
 unset IFS
 set +f
