@@ -1,5 +1,5 @@
 name: scanservjs
-version: v2.26.1-3
+version: v2.26.1-4
 slug: scanservjs
 description: scanservjs is a web UI frontend for your scanner.
 arch:
@@ -29,7 +29,7 @@ options:
   airscan_devices: ""
   scanimage_list_ignore: false 
   devices: ""
-  ocr_lang: "eng"
+  ocr_lang: eng
 schema:
   saned_net_hosts: str?
   airscan_devices: str?

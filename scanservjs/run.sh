@@ -15,7 +15,7 @@ IFS='
 DELIMITER=${DELIMITER:-;}
 CONFIG_PATH="/data/options.json"
 
-export SANED_NET_HOSTS=$(jq '.saned_net_hosts' $CONFIG_PATH)
+export SANED_NET_HOSTS=$(jq -r '.saned_net_hosts' $CONFIG_PATH)
 
 # Insert a list of net hosts
 if [ ! -z "$SANED_NET_HOSTS" ]; then
@@ -25,7 +25,7 @@ if [ ! -z "$SANED_NET_HOSTS" ]; then
   done
 fi
 
-export AIRSCAN_DEVICES=$(jq '.airscan_devices' $CONFIG_PATH)
+export AIRSCAN_DEVICES=$(jq -r '.airscan_devices' $CONFIG_PATH)
 
 # Insert airscan devices
 if [ ! -z "$AIRSCAN_DEVICES" ]; then
@@ -35,9 +35,9 @@ if [ ! -z "$AIRSCAN_DEVICES" ]; then
   done
 fi
 
-export SCANIMAGE_LIST_IGNORE=$(jq '.scanimage_list_ignore' $CONFIG_PATH)
-export DEVICES=$(jq '.devices' $CONFIG_PATH)
-export OCR_LANG=$(jq '.ocr_lang' $CONFIG_PATH)
+export SCANIMAGE_LIST_IGNORE=$(jq -r '.scanimage_list_ignore' $CONFIG_PATH)
+export DEVICES=$(jq -r '.devices' $CONFIG_PATH)
+export OCR_LANG=$(jq -r '.ocr_lang' $CONFIG_PATH)
 
 unset IFS
 set +f
