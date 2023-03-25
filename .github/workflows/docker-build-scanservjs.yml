@@ -5,6 +5,7 @@ on:
       - main
     paths:
       - scanservjs/**
+  workflow_dispatch:
 
 jobs:
   docker:
