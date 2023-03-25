@@ -13,7 +13,7 @@ IFS='
 
 # Get a custom delimiter but default to ;
 DELIMITER=${DELIMITER:-;}
-CONFIG_PATH="/data/config.json"
+CONFIG_PATH="/data/options.json"
 
 export SANED_NET_HOSTS=$(jq '.saned_net_hosts' $CONFIG_PATH)
 
