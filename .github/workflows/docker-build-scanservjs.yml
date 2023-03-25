@@ -32,7 +32,7 @@ jobs:
           context: .
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
-          tags:
-            - aaroncarson/scanservjs:latest
-            - aaroncarson/scanservjs:${{ steps.get_version.outputs.result }}
-            - aaroncarson/scanservjs:${{ github.sha }}
+          tags: |
+            aaroncarson/scanservjs:latest
+            aaroncarson/scanservjs:${{ steps.get_version.outputs.result }}
+            aaroncarson/scanservjs:${{ github.sha }}
