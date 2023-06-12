@@ -7,4 +7,4 @@
 	url = https://github.com/caraar12345/speedtest2mqtt
 [submodule "ha-addon-influxdb2"]
 	path = influxdb2
-	url = git@github.com:caraar12345/ha-addon-influxdb2
+	url = https://github.com/caraar12345/ha-addon-influxdb2
