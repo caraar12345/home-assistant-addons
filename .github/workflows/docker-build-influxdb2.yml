@@ -41,16 +41,16 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
-          context: ./influxdb2
+          context: ${{ github.workspace }}/influxdb2/influxdb2
           platforms: linux/amd64 #,linux/arm64,linux/arm/v7
           push: true
           build-args: |
-            BUILD_DATE=${{ steps.date.output.date }}
-            BUILD_DESCRIPTION=${{ steps.build_metadata.outputs['description'] }}
-            BUILD_NAME=${{ steps.build_metadata.outputs['name'] }}
-            BUILD_REF=${{ github.sha }}
-            BUILD_REPOSITORY=${{ github.server_url }}/${{ github.repository }}
-            BUILD_VERSION=${{ steps.build_metadata.outputs['version'] }}
+            BUILD_DATE="${{ steps.date.output.date }}"
+            BUILD_DESCRIPTION="${{ steps.build_metadata.outputs['description'] }}"
+            BUILD_NAME="${{ steps.build_metadata.outputs['name'] }}"
+            BUILD_REF="${{ github.sha }}"
+            BUILD_REPOSITORY="${{ github.server_url }}/${{ github.repository }}"
+            BUILD_VERSION="${{ steps.build_metadata.outputs['version'] }}"
           tags: |
             aaroncarson/ha-addon-influxdb2:latest
             aaroncarson/ha-addon-influxdb2:${{ steps.build_metadata.outputs['version'] }}
