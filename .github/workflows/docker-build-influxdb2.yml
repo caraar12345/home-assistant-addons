@@ -20,7 +20,7 @@ jobs:
         id: build_metadata
         uses: pietrobolcato/action-read-yaml@1.1.0
         with:
-          config: {{ github.workspace}}/influxdb2/influxdb2/config.yaml
+          config: ${{ github.workspace }}/influxdb2/influxdb2/config.yaml
 
       - name: Get current date
         id: date
