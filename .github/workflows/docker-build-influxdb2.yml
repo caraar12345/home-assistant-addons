@@ -20,7 +20,7 @@ jobs:
         id: build_metadata
         uses: pietrobolcato/action-read-yaml@1.1.0
         with:
-          config: ${{ github.workspace }}/influxdb2/config.yaml
+          config: influxdb2/config.yaml
 
       - name: Get current date
         id: date
@@ -37,7 +37,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-          
+
       - name: Build and push
         uses: docker/build-push-action@v4
         with:
