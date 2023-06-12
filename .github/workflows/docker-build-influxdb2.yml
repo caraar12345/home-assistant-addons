@@ -24,7 +24,7 @@ jobs:
 
       - name: Get current date
         id: date
-        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+        run: echo "TODAYS_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v2
@@ -45,7 +45,7 @@ jobs:
           platforms: linux/amd64 #,linux/arm64,linux/arm/v7
           push: true
           build-args: |
-            BUILD_DATE="${{ steps.date.output.date }}"
+            BUILD_DATE="${{ env.TODAYS_DATE }}"
             BUILD_DESCRIPTION="${{ steps.build_metadata.outputs['description'] }}"
             BUILD_NAME="${{ steps.build_metadata.outputs['name'] }}"
             BUILD_REF="${{ github.sha }}"
