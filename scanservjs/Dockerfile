@@ -13,6 +13,8 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && mv /tmp/bashio/lib /usr/lib/bashio \
     && ln -s /usr/lib/bashio/bashio /usr/bin/bashio
     && apt install hplip hplip-gui -y
+    && service cups start
+    && hp-setup -i -a -b usb
 
 ADD --chmod=777 run.sh /run.sh
 ENTRYPOINT [ "/run.sh" ]
