@@ -7,6 +7,11 @@ set -xve
 # turn off globbing
 set -f
 
+# start cups
+service cups start
+#setup drivers
+hp-setup -i -a -b usb
+
 # split at newlines only (airscan devices can have spaces in)
 IFS='
 '

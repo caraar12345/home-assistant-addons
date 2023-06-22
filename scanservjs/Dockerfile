@@ -12,9 +12,7 @@ RUN export DEBIAN_FRONTEND=noninteractive \
     && apt remove -y curl \
     && mv /tmp/bashio/lib /usr/lib/bashio \
     && ln -s /usr/lib/bashio/bashio /usr/bin/bashio \
-    && apt install hplip hplip-gui -y \
-    && service cups start \
-    && hp-setup -i -a -b usb
+    && apt install hplip hplip-gui -y 
 
 ADD --chmod=777 run.sh /run.sh
 ENTRYPOINT [ "/run.sh" ]
