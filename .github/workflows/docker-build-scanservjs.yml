@@ -34,6 +34,6 @@ jobs:
           platforms: linux/amd64 #,linux/arm64,linux/arm/v7
           push: true
           tags: |
-            aaroncarson/scanservjs-ha:latest
-            aaroncarson/scanservjs-ha:${{ steps.get_version.outputs.result }}
-            aaroncarson/scanservjs-ha:${{ github.sha }}
+            evertonbtm/scanservjs-ha:latest
+            evertonbtm/scanservjs-ha:${{ steps.get_version.outputs.result }}
+            evertonbtm/scanservjs-ha:${{ github.sha }}
