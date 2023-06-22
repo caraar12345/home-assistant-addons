@@ -23,6 +23,7 @@ ports_description:
 full_access: true
 host_network: true
 host_dbus: true
+usb: true
 ingress: true
 ingress_port: 8080
 panel_icon: mdi:scanner
