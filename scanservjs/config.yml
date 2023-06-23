@@ -1,7 +1,7 @@
 name: scanservjs
 version: v2.26.1-6
 slug: scanservjs
-description: scanservjs is a web UI frontend for your scanner
+description: (fork) scanservjs is a web UI frontend for your scanner
 arch:
   - armv7
   - aarch64
