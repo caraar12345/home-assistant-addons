@@ -10,3 +10,6 @@
 	url = https://github.com/caraar12345/ha-addon-influxdb2
 [submodule "influxdb2"]
 	url = https://github.com/caraar12345/ha-addon-influxdb2
+[submodule "tvheadend"]
+	path = tvheadend
+	url = ssh://git@github.com/caraar12345/hassio-tvheadend
