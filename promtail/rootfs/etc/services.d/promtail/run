@@ -1,0 +1,40 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Promtail
+# Runs Promtail
+# ==============================================================================
+readonly PROMTAIL_CONFIG='/etc/promtail/config.yaml'
+declare log_level
+
+bashio::log.info 'Starting Promtail...'
+
+journal_path='/var/log/journal'
+if ! bashio::fs.directory_exists "${journal_path}" || [ -z "$(ls -A ${journal_path})" ]; then
+    bashio::log.info "No journal at ${journal_path}, looking for journal in /run/log/journal instead"
+    journal_path='/run/log/journal'
+fi
+
+case "$(bashio::config 'log_level')" in \
+    trace)      ;& \
+    debug)      log_level='debug' ;; \
+    notice)     ;& \
+    warning)    log_level='warn' ;; \
+    error)      ;& \
+    fatal)      log_level='error' ;; \
+    *)          log_level='info' ;; \
+esac;
+bashio::log.info "Promtail log level set to ${log_level}"
+
+export "URL=$(bashio::config 'client.url')"
+export "JOURNAL_PATH=${journal_path}"
+export "LOG_LEVEL=${log_level}"
+
+promtail_args=("-config.expand-env=true" "-config.file=${PROMTAIL_CONFIG}")
+if [ "${log_level}" == "debug" ]; then
+    bashio::log.debug "Logging full config on startup for debugging..."
+    promtail_args+=("-print-config-stderr=true")
+fi
+
+bashio::log.info "Handing over control to Promtail..."
+/usr/bin/promtail "${promtail_args[@]}"
