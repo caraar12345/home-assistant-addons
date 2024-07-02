@@ -15,4 +15,4 @@ webui: http://[HOST]:[PORT:8080]/
 docker_api: true
 full_access: true
 watchdog: http://[HOST]:[PORT:8080]/healthz
-image: gcr.io/cadvisor/cadvisor:v0.49.1
+image: gcr.io/cadvisor/cadvisor
