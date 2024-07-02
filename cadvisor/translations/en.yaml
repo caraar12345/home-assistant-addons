@@ -1,0 +1,4 @@
+configuration:
+  custom_args:
+    name: Custom args
+    description: Any custom args you want passing to cAdvisor

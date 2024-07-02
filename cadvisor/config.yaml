@@ -1,11 +1,10 @@
 name: cAdvisor
-version: v0.49.1
+version: v0.49.1-a
 slug: cadvisor
 description: Analyzes resource usage and performance characteristics of running containers.
 arch:
   - amd64
   - aarch64
-  - armv7
 url: https://github.com/google/cadvisor
 ports:
   8080/tcp: 8080
@@ -15,4 +14,8 @@ webui: http://[HOST]:[PORT:8080]/
 docker_api: true
 full_access: true
 watchdog: http://[HOST]:[PORT:8080]/healthz
-image: gcr.io/cadvisor/cadvisor
+image: aaroncarson/hassio-cadvisor-{arch}
+options:
+  - custom_args: ""
+schema:
+  - custom_args: "str?"
