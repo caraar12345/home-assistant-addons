@@ -1,5 +1,5 @@
 name: cAdvisor
-version: v0.49.1-a
+version: v0.49.1-b
 slug: cadvisor
 description: Analyzes resource usage and performance characteristics of running containers.
 arch:
@@ -20,3 +20,19 @@ options:
   custom_args: ""
 schema:
   custom_args: "str?"
+privileged:
+  - BPF
+  - DAC_READ_SEARCH
+  - IPC_LOCK
+  - NET_ADMIN
+  - NET_RAW
+  - PERFMON
+  - SYS_ADMIN
+  - SYS_MODULE
+  - SYS_NICE
+  - SYS_PTRACE
+  - SYS_RAWIO
+  - SYS_RESOURCE
+  - SYS_TIME
+host_ipc: true
+host_dbus: true
