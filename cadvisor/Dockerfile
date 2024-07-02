@@ -5,7 +5,8 @@ COPY --from=gcr.io/cadvisor/cadvisor:v0.49.1 /usr/bin/cadvisor /usr/bin/cadvisor
 
 # Copy root filesystem
 COPY rootfs /
-RUN chmod +x /usr/bin/run_cadvisor.sh
+RUN chmod +x /usr/bin/run_cadvisor.sh && \
+    chmod +x /usr/bin/cadvisor
 
 # Build arguments
 ARG BUILD_ARCH
