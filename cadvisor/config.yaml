@@ -13,6 +13,7 @@ ports_description:
 webui: http://[HOST]:[PORT:8080]/
 docker_api: true
 full_access: true
+init: false
 watchdog: http://[HOST]:[PORT:8080]/healthz
 image: aaroncarson/hassio-cadvisor-{arch}
 options:
