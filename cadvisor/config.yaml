@@ -1,7 +1,7 @@
 name: cAdvisor
 version: v0.49.1-b
 slug: cadvisor
-description: Analyzes resource usage and performance characteristics of running containers.
+description: Analyzes resource usage and performance characteristics of running containers
 arch:
   - amd64
   - aarch64
