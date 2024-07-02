@@ -16,6 +16,6 @@ full_access: true
 watchdog: http://[HOST]:[PORT:8080]/healthz
 image: aaroncarson/hassio-cadvisor-{arch}
 options:
-  - custom_args: ""
+  custom_args: ""
 schema:
-  - custom_args: "str?"
+  custom_args: "str?"
