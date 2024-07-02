@@ -1,0 +1,19 @@
+name: "cAdvisor"
+version: "0.49.1"
+slug: cadvisor
+description: >-
+  "Analyzes resource usage and performance characteristics of running containers."
+arch:
+  - amd64
+  - aarch64
+  - armv7
+url: "https://github.com/google/cadvisor"
+ports:
+  8080/tcp: 8080
+ports_description:
+  8080/tcp: expose the metrics endpoint and web UI
+webui: "http://[HOST]:[PORT:8080]/"
+docker_api: true
+full_access: true
+watchdog: http://[HOST]:[PORT:8080]/healthz
+image: "gcr.io/cadvisor/cadvisor:v0.49.1"
