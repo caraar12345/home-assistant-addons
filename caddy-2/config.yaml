@@ -1,6 +1,6 @@
 ---
 name: Caddy 2
-version: 2.0.0-dev.2
+version: 2.0.0-dev.3
 slug: caddy-2
 description: Open source web and proxy server with automatic HTTPS
 url: "https://github.com/caraar12345/hass-addon-caddy-2"
@@ -42,7 +42,7 @@ schema:
   - name: str
     value: str
   python_packages:
-  - str
+  - str?
   log_level: list(trace|debug|info|notice|warning|error|fatal)
 environment:
   LOG_FORMAT: "{LEVEL}: {MESSAGE}"
