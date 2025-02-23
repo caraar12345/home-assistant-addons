@@ -16,3 +16,6 @@
 [submodule "caddy-webhook"]
 	path = caddy-webhook
 	url = https://github.com/caraar12345/caddy-webhook
+[submodule "caddy-2"]
+	path = caddy-2
+	url = https://github.com/caraar12345/hass-addon-caddy-2
