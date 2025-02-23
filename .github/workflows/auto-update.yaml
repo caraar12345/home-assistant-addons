@@ -13,8 +13,8 @@ jobs:
         uses: raven-actions/bot-details@v1
       - name: Update submodule
         env:
-          ADDON_NAME: ${{ github.event.addon_update.addon }}
-          VERSION: ${{ github.event.addon_update.version }}
+          ADDON_NAME: ${{ github.event.client_payload.addon }}
+          VERSION: ${{ github.event.client_payload.version }}
         run: |
           echo "Addon $ADDON_NAME updated to version $VERSION"
           cd $ADDON_NAME
