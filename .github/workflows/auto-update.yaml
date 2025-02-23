@@ -15,6 +15,7 @@ jobs:
         env:
           ADDON_NAME: ${{ github.event.client_payload.addon }}
           VERSION: ${{ github.event.client_payload.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           echo "Addon $ADDON_NAME updated to version $VERSION"
           gh auth setup-git
