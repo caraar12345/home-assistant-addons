@@ -13,3 +13,6 @@
 [submodule "tvheadend"]
 	path = tvheadend
 	url = https://github.com/caraar12345/hassio-tvheadend
+[submodule "caddy-webhook"]
+	path = caddy-webhook
+	url = https://github.com/caraar12345/caddy-webhook
