@@ -1,0 +1,28 @@
+name: "Auto-update addon store repository"
+on:
+  repository_dispatch:
+    types: [addon_update]
+jobs:
+  update_submodule:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+      - name: Set bot details
+        id: bot-details
+        uses: raven-actions/bot-details@v1
+      - name: Update submodule
+        env:
+          ADDON_NAME: ${{ github.event.addon_update.addon }}
+          VERSION: ${{ github.event.addon_update.version }}
+        run: |
+          echo "Addon $ADDON_NAME updated to version $VERSION"
+          cd $ADDON_NAME
+          git config --global user.email "${{ steps.bot-details.outputs.email }}"
+          git config --global user.name "${{ steps.bot-details.outputs.name }}"
+          git fetch
+          git checkout $VERSION
+          cd ..
+          git add $ADDON_NAME
+          git commit -m "[$ADDON_NAME] updated to version $VERSION"
+          git push
