@@ -19,7 +19,7 @@ jobs:
         run: |
           echo "Addon $ADDON_NAME updated to version $VERSION"
           gh auth setup-git
-          git submodule update --remote $ADDON_NAME
+          git submodule update --init $ADDON_NAME
           cd $ADDON_NAME
           git config --global user.email "${{ steps.bot-details.outputs.email }}"
           git config --global user.name "${{ steps.bot-details.outputs.name }}"
