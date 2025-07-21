@@ -19,3 +19,6 @@
 [submodule "caddy-2"]
 	path = caddy-2
 	url = https://github.com/caraar12345/hass-addon-caddy-2
+[submodule "grafana"]
+	path = grafana
+	url = https://github.com/caraar12345/hass-addon-grafana
