@@ -1,5 +1,5 @@
 name: cAdvisor
-version: v0.49.1-b
+version: v0.53.0
 slug: cadvisor
 description: Analyzes resource usage and performance characteristics of running containers
 arch:
@@ -15,7 +15,7 @@ docker_api: true
 full_access: true
 init: false
 watchdog: http://[HOST]:[PORT:8080]/healthz
-image: aaroncarson/hassio-cadvisor-{arch}
+image: aaroncarson/hassio-cadvisor
 options:
   custom_args: ""
 schema:
