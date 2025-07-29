@@ -1,5 +1,5 @@
 name: cAdvisor
-version: v0.53.0
+version: v0.52.1
 slug: cadvisor
 description: Analyzes resource usage and performance characteristics of running containers
 arch:
