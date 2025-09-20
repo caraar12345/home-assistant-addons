@@ -1,38 +1,40 @@
 // Default systemd journal discovery and processing configuration for Alloy
 
-// Discover systemd journal files
-discovery.systemd "journal" {
-  path = env("JOURNAL_PATH")
+// Relabel rules for journal entries
+discovery.relabel "journal" {
+  targets = []
+  
+  rule {
+    source_labels = ["__journal__systemd_unit"]
+    target_label  = "unit"
+  }
+  
+  rule {
+    source_labels = ["__journal__hostname"]
+    target_label  = "nodename"
+  }
+  
+  rule {
+    source_labels = ["__journal_syslog_identifier"]
+    target_label  = "syslog_identifier"
+  }
+  
+  rule {
+    source_labels = ["__journal_container_name"]
+    target_label  = "container_name"
+  }
 }
 
 // Process systemd journal logs
-loki.source.systemd "journal" {
-  targets = discovery.systemd.journal.targets
+loki.source.journal "journal" {
+  path = env("JOURNAL_PATH")
   
   labels = {
     job = "systemd-journal",
   }
   
-  relabel_rules = [
-    {
-      source_labels = ["__journal__systemd_unit"]
-      target_label  = "unit"
-    },
-    {
-      source_labels = ["__journal__hostname"]
-      target_label  = "nodename"
-    },
-    {
-      source_labels = ["__journal_syslog_identifier"]
-      target_label  = "syslog_identifier"
-    },
-    {
-      source_labels = ["__journal_container_name"]
-      target_label  = "container_name"
-    },
-  ]
-  
-  forward_to = [loki.process.journal.receiver]
+  relabel_rules = discovery.relabel.journal.rules
+  forward_to    = [loki.process.journal.receiver]
 }
 
 // Process logs with pipeline stages

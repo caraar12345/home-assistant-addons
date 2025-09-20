@@ -57,6 +57,7 @@ profile alloy flags=(attach_disconnected,mediate_deleted) {
 
   # Files needed for setup
   @{do_etc}/alloy/{,**}                rw,
+  @{do_etc}/alloy/*.alloy              rw,
   /config/alloy/{,**}                  r,
   /{share,ssl}/{,**}                      r,
   @{journald}                             r,
@@ -87,6 +88,8 @@ profile alloy flags=(attach_disconnected,mediate_deleted) {
 
     # Config & log data
     @{do_etc}/alloy/config.yaml        r,
+    @{do_etc}/alloy/config.alloy       r,
+    @{do_etc}/alloy/*.alloy            r,
     /config/alloy/{,**}                r,
     /{share,ssl}/**                       r,
     @{journald}                           r,

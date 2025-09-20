@@ -1,0 +1,11 @@
+---
+description: How to test addons
+globs:
+alwaysApply: true
+---
+
+- You are in a Home Assistant shell with access to `docker` and `ha`.
+- To instruct the HA Supervisor to check for updates (after changing the addon), run `ha supervisor reload`
+- To then update this addon, run `ha addon update local_promtail`
+- To start the addon, run `ha addon start local_promtail`
+- To get logs, run `ha addon logs local_promtail` 

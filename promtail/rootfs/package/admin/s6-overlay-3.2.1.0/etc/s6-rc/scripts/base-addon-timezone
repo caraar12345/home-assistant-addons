@@ -1,0 +1,31 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Community Add-on: Base Images
+# Configures the timezone (Fixed version that works around dpkg-reconfigure issues)
+# ==============================================================================
+
+# Get timezone from config or environment
+if bashio::config.exists 'timezone' && ! bashio::config.is_empty 'timezone'; then
+    timezone=$(bashio::config 'timezone')
+else
+    timezone=${TZ:-UTC}
+fi
+
+bashio::log.info "Configuring timezone (${timezone})..."
+
+# Set timezone using standard method, but skip problematic dpkg-reconfigure
+if [[ -f "/usr/share/zoneinfo/${timezone}" ]]; then
+    ln --symbolic --no-dereference --force "/usr/share/zoneinfo/${timezone}" /etc/localtime
+    echo "${timezone}" > /etc/timezone
+    export TZ="${timezone}"
+else
+    bashio::log.warning "Timezone '${timezone}' not found, using UTC"
+    ln --symbolic --no-dereference --force "/usr/share/zoneinfo/UTC" /etc/localtime
+    echo "UTC" > /etc/timezone
+    export TZ="UTC"
+fi
+
+# Skip dpkg-reconfigure as it causes exit code 126 in some container environments
+# dpkg-reconfigure --frontend noninteractive tzdata 2> /dev/null
+bashio::log.info "Timezone configuration completed successfully"

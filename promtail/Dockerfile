@@ -1,10 +1,8 @@
-ARG BUILD_FROM=ghcr.io/hassio-addons/debian-base:8.1.1
-ARG BUILD_ARCH=amd64
-
+ARG BUILD_FROM
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
-ARG BUILD_ARCH=amd64
+ARG BUILD_ARCH
 # https://github.com/mikefarah/yq/releases
 ARG YQ_VERSION=4.47.2
 

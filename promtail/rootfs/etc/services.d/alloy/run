@@ -4,7 +4,7 @@
 # Home Assistant Add-on: Alloy
 # Runs Grafana Alloy
 # ==============================================================================
-readonly ALLOY_CONFIG='/etc/alloy/config.alloy'
+readonly ALLOY_CONFIG='/data/promtail/config.alloy'
 declare log_level
 
 bashio::log.info 'Starting Grafana Alloy...'
@@ -35,12 +35,38 @@ alloy_args=("run" "${ALLOY_CONFIG}")
 # Add server configuration for health checks
 alloy_args+=("--server.http.listen-addr=0.0.0.0:9080")
 
-if [ "${log_level}" == "debug" ]; then
-    bashio::log.debug "Running Alloy in debug mode..."
-    alloy_args+=("--log.level=debug")
-else
-    alloy_args+=("--log.level=${log_level}")
+# Set storage path to a writable directory (matches Dockerfile WORKDIR)
+alloy_args+=("--storage.path=/data/promtail")
+
+# Note: Alloy doesn't use --log.level flag, logging is controlled via config file
+# The LOG_LEVEL environment variable is used in the Alloy configuration
+
+# Ensure config directory and files are accessible
+chmod -R 755 /etc/alloy
+chmod 644 /etc/alloy/*.alloy
+
+# Ensure data directory exists and is writable
+mkdir -p /data/promtail
+chmod 755 /data/promtail
+
+# Copy config file to data directory where AppArmor allows full access
+cp /etc/alloy/config.alloy "${ALLOY_CONFIG}"
+chmod 644 "${ALLOY_CONFIG}"
+
+# Debug: Check current user and file permissions
+bashio::log.info "Current user: $(whoami)"
+bashio::log.info "Current UID: $(id -u)"
+bashio::log.info "Config file permissions:"
+ls -la "${ALLOY_CONFIG}"
+bashio::log.info "Config directory permissions:"
+ls -la /etc/alloy/
+
+# Verify config file is readable
+if [[ ! -r "${ALLOY_CONFIG}" ]]; then
+    bashio::log.error "Config file ${ALLOY_CONFIG} is not readable!"
+    exit 1
 fi
 
 bashio::log.info "Handing over control to Grafana Alloy..."
+cd /data/promtail
 /usr/bin/alloy "${alloy_args[@]}"

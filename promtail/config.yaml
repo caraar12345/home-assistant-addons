@@ -1,7 +1,7 @@
 ---
 name: Alloy
 url: https://github.com/caraar12345/home-assistant-addons/blob/main/promtail
-version: v1.10.2-aaroncarson.1
+version: v1.10.2-aaroncarson.7
 slug: promtail
 arch:
   - aarch64
@@ -9,7 +9,7 @@ arch:
 description: Grafana Alloy for Home Assistant
 init: false
 journald: true
-image: ghcr.io/caraar12345/ha-addon-alloy
+#image: ghcr.io/caraar12345/ha-addon-alloy
 map:
   - config
   - share
@@ -23,7 +23,9 @@ options:
   client:
     url: http://39bd2704-loki:3100/loki/api/v1/push
   log_level: info
+  timezone: Europe/London
 schema:
+  timezone: str?
   client:
     url: str
     username: str?
