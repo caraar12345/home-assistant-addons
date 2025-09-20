@@ -70,7 +70,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
-            BUILD_FROM="${{ steps.build_config.outputs['build_from.amd64'] }}"
+            BUILD_FROM=${{ steps.build_config.outputs['build_from.amd64'] }}
             BUILD_DATE="${{ steps.date.outputs.date }}"
             BUILD_DESCRIPTION="${{ steps.build_metadata.outputs['description'] }}"
             BUILD_NAME="${{ steps.build_metadata.outputs['name'] }}"

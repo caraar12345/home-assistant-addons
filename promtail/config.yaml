@@ -1,7 +1,7 @@
 ---
 name: Alloy
 url: https://github.com/caraar12345/home-assistant-addons/blob/main/promtail
-version: v1.10.2-aaroncarson.7
+version: v1.10.2-aaroncarson.8
 slug: promtail
 arch:
   - aarch64
