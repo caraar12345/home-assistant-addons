@@ -9,7 +9,7 @@ arch:
 description: Grafana Alloy for Home Assistant
 init: false
 journald: true
-#image: ghcr.io/caraar12345/ha-addon-alloy
+image: ghcr.io/caraar12345/ha-addon-alloy
 map:
   - config
   - share
