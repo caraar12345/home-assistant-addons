@@ -60,7 +60,7 @@ jobs:
         uses: docker/build-push-action@v4
         with:
           context: ${{ github.workspace }}/promtail
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
             BUILD_DATE="${{ steps.date.outputs.date }}"
