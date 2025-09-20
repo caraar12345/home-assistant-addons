@@ -2,6 +2,7 @@ ARG BUILD_FROM
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
+ARG TARGETARCH
 # https://github.com/mikefarah/yq/releases
 ARG YQ_VERSION=4.47.2
 
