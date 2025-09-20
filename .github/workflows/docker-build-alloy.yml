@@ -34,6 +34,13 @@ jobs:
         with:
           config: ${{ github.workspace }}/promtail/config.yaml
 
+      - name: Get build configuration
+        if: steps.check_changes.outputs.changed == 'true'
+        id: build_config
+        uses: pietrobolcato/action-read-yaml@1.1.0
+        with:
+          config: ${{ github.workspace }}/promtail/build.yaml
+
       - name: Get current date
         if: steps.check_changes.outputs.changed == 'true'
         id: date
@@ -63,6 +70,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: |
+            BUILD_FROM="${{ steps.build_config.outputs['build_from.amd64'] }}"
             BUILD_DATE="${{ steps.date.outputs.date }}"
             BUILD_DESCRIPTION="${{ steps.build_metadata.outputs['description'] }}"
             BUILD_NAME="${{ steps.build_metadata.outputs['name'] }}"
