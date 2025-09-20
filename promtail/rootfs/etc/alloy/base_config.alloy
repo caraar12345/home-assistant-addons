@@ -1,0 +1,14 @@
+// Grafana Alloy base configuration for Home Assistant Add-on
+// This configuration sets up logging and basic Loki client
+
+logging {
+  level = env("LOG_LEVEL")
+  format = "logfmt"
+}
+
+// Basic Loki write endpoint - will be overridden if auth/TLS is configured
+loki.write "default" {
+  endpoint {
+    url = env("URL")
+  }
+}

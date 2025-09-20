@@ -1,0 +1,49 @@
+// Default systemd journal discovery and processing configuration for Alloy
+
+// Discover systemd journal files
+discovery.systemd "journal" {
+  path = env("JOURNAL_PATH")
+}
+
+// Process systemd journal logs
+loki.source.systemd "journal" {
+  targets = discovery.systemd.journal.targets
+  
+  labels = {
+    job = "systemd-journal",
+  }
+  
+  relabel_rules = [
+    {
+      source_labels = ["__journal__systemd_unit"]
+      target_label  = "unit"
+    },
+    {
+      source_labels = ["__journal__hostname"]
+      target_label  = "nodename"
+    },
+    {
+      source_labels = ["__journal_syslog_identifier"]
+      target_label  = "syslog_identifier"
+    },
+    {
+      source_labels = ["__journal_container_name"]
+      target_label  = "container_name"
+    },
+  ]
+  
+  forward_to = [loki.process.journal.receiver]
+}
+
+// Process logs with pipeline stages
+loki.process "journal" {
+  stage.match {
+    selector = `{container_name=~"homeassistant|hassio_supervisor"}`
+    
+    stage.multiline {
+      firstline = `^\x{001b}`
+    }
+  }
+  
+  forward_to = [loki.write.default.receiver]
+}

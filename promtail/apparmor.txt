@@ -12,7 +12,7 @@ include <tunables/global>
 # Systemd Journal location
 @{journald}=/{run,var}/log/journal/{,**}
 
-profile promtail flags=(attach_disconnected,mediate_deleted) {
+profile alloy flags=(attach_disconnected,mediate_deleted) {
   include <abstractions/base>
   include <abstractions/bash>
 
@@ -56,20 +56,20 @@ profile promtail flags=(attach_disconnected,mediate_deleted) {
   /data/**                                rw,
 
   # Files needed for setup
-  @{do_etc}/promtail/{,**}                rw,
-  /config/promtail/{,**}                  r,
+  @{do_etc}/alloy/{,**}                rw,
+  /config/alloy/{,**}                  r,
   /{share,ssl}/{,**}                      r,
   @{journald}                             r,
 
   # Programs
-  /usr/bin/promtail                       cx -> promtail,
+  /usr/bin/alloy                       cx -> alloy,
   /usr/bin/yq                             Cx,
 
-  profile promtail flags=(attach_disconnected,mediate_deleted) {
+  profile alloy flags=(attach_disconnected,mediate_deleted) {
     include <abstractions/base>
 
     # Receive signals from s6
-    signal (receive) peer=*_promtail,
+    signal (receive) peer=*_alloy,
 
     # Network access
     network tcp,
@@ -82,16 +82,17 @@ profile promtail flags=(attach_disconnected,mediate_deleted) {
 
     # Addon data
     /data/**                              r,
+    /data/alloy/**                     rwk,
     /data/promtail/**                     rwk,
 
     # Config & log data
-    @{do_etc}/promtail/config.yaml        r,
-    /config/promtail/{,**}                r,
+    @{do_etc}/alloy/config.yaml        r,
+    /config/alloy/{,**}                r,
     /{share,ssl}/**                       r,
     @{journald}                           r,
 
     # Runtime usage
-    /usr/bin/promtail                     rm,
+    /usr/bin/alloy                     rm,
     @{do_etc}/{hosts,passwd}              r,
     @{do_etc}/{resolv,nsswitch}.conf      r,
     @{PROC}/sys/net/core/somaxconn        r,
@@ -104,8 +105,8 @@ profile promtail flags=(attach_disconnected,mediate_deleted) {
     include <abstractions/base>
 
     # Config files
-    @{do_etc}/promtail/*                  rw,
-    /config/promtail/{,**}                r,
+    @{do_etc}/alloy/*                  rw,
+    /config/alloy/{,**}                r,
     /share/**                             r,
 
     # Runtime usage

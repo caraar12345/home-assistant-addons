@@ -1,16 +1,17 @@
 ---
-name: Promtail
-url: https://github.com/mdegat01/addon-promtail
-version: edge
+name: Alloy
+url: https://github.com/caraar12345/home-assistant-addons/blob/main/promtail
+version: v1.10.2-aaroncarson.0
 slug: promtail
 arch:
   - aarch64
   - amd64
   - armv7
   - armhf
-description: Promtail for Home Assistant
+description: Grafana Alloy for Home Assistant
 init: false
 journald: true
+image: ghcr.io/caraar12345/ha-addon-alloy
 map:
   - config
   - share
@@ -19,7 +20,7 @@ watchdog: http://[HOST]:[PORT:9080]/ready
 ports:
   9080/tcp:
 ports_description:
-  9080/tcp: Promtail web server
+  9080/tcp: Alloy web server
 options:
   client:
     url: http://39bd2704-loki:3100/loki/api/v1/push

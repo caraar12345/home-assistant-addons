@@ -1,0 +1,75 @@
+name: Docker build - Alloy
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'promtail/**'
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 2
+
+      - name: Check for changes
+        id: check_changes
+        run: |
+          if git diff --quiet HEAD^ HEAD -- promtail; then
+            echo "No changes in promtail directory"
+            echo "changed=false" >> $GITHUB_OUTPUT
+          else
+            echo "Changes detected in promtail directory"
+            echo "changed=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get build metadata
+        if: steps.check_changes.outputs.changed == 'true'
+        id: build_metadata
+        uses: pietrobolcato/action-read-yaml@1.1.0
+        with:
+          config: ${{ github.workspace }}/promtail/config.yaml
+
+      - name: Get current date
+        if: steps.check_changes.outputs.changed == 'true'
+        id: date
+        run: echo "date=$(date +'%Y-%m-%d')" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to GitHub Container Registry
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        if: steps.check_changes.outputs.changed == 'true'
+        uses: docker/build-push-action@v4
+        with:
+          context: ${{ github.workspace }}/promtail
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          build-args: |
+            BUILD_DATE="${{ steps.date.outputs.date }}"
+            BUILD_DESCRIPTION="${{ steps.build_metadata.outputs['description'] }}"
+            BUILD_NAME="${{ steps.build_metadata.outputs['name'] }}"
+            BUILD_REF="${{ github.sha }}"
+            BUILD_REPOSITORY="${{ github.server_url }}/${{ github.repository }}"
+            BUILD_VERSION="${{ steps.build_metadata.outputs['version'] }}"
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/ha-addon-alloy:latest
+            ghcr.io/${{ github.repository_owner }}/ha-addon-alloy:${{ steps.build_metadata.outputs['version'] }}
+            ghcr.io/${{ github.repository_owner }}/ha-addon-alloy:${{ github.sha }}

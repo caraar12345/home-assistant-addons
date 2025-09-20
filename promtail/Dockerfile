@@ -1,25 +1,21 @@
-ARG BUILD_FROM=ghcr.io/hassio-addons/debian-base/amd64:6.2.7
+ARG BUILD_FROM=ghcr.io/hassio-addons/debian-base:8.1.1
 ARG BUILD_ARCH=amd64
 
-# https://github.com/mdegat01/promtail-journal/releases
-#FROM ghcr.io/mdegat01/promtail-journal/${BUILD_ARCH}:1.6.0 as build_promtail
-
-# https://github.com/hassio-addons/addon-debian-base/releases
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
 ARG BUILD_ARCH=amd64
 # https://github.com/mikefarah/yq/releases
-ARG YQ_VERSION=4.27.3
+ARG YQ_VERSION=4.47.2
 
-# Add yq and tzdata (required for the timestamp stage)
-RUN echo "deb http://deb.debian.org/debian bullseye-backports main" >> /etc/apt/sources.list
-RUN apt-get update && apt-get install -t bullseye-backports -qy libsystemd-dev
 RUN set -eux; \
-    apt-get update; \
-    apt-get install -qy --no-install-recommends \ 
-        tar=1.34+dfsg-1 \
-        ; \
+    apt-get update \
+    && apt-get upgrade -y \
+    && apt-get install -qy --no-install-recommends \
+        ca-certificates \
+        libsystemd0 \
+        tzdata \
+        tar; \
     update-ca-certificates; \
     \
     case "${BUILD_ARCH}" in \
@@ -40,9 +36,9 @@ RUN set -eux; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*;
 
-# Add promtail
-COPY --from=grafana/promtail:latest /usr/bin/promtail /usr/bin/promtail
-RUN promtail --version
+# Add Alloy
+COPY --from=grafana/alloy:latest /usr/bin/alloy /usr/bin/alloy
+RUN alloy --version
 
 COPY rootfs /
 WORKDIR /data/promtail
@@ -63,15 +59,15 @@ LABEL \
     io.hass.arch="${BUILD_ARCH}" \
     io.hass.type="addon" \
     io.hass.version=${BUILD_VERSION} \
-    maintainer="mdegat01" \
+    maintainer="caraar12345" \
     org.opencontainers.image.title="${BUILD_NAME}" \
     org.opencontainers.image.description="${BUILD_DESCRIPTION}" \
-    org.opencontainers.image.vendor="mdegat01's Home Assistant Add-ons" \
-    org.opencontainers.image.authors="mdegat01" \
+    org.opencontainers.image.vendor="aaroncarson's Home Assistant Add-ons" \
+    org.opencontainers.image.authors="caraar12345" \
     org.opencontainers.image.licenses="MIT" \
-    org.opencontainers.image.url="https://github.com/mdegat01/hassio-addons" \
-    org.opencontainers.image.source="https://github.com/${BUILD_REPOSITORY}" \
-    org.opencontainers.image.documentation="https://github.com/${BUILD_REPOSITORY}/blob/main/README.md" \
+    org.opencontainers.image.url="https://github.com/caraar12345/home-assistant-addons/blob/main/promtail" \
+    org.opencontainers.image.source="${BUILD_REPOSITORY}" \
+    org.opencontainers.image.documentation="https://github.com/${BUILD_REPOSITORY}/blob/main/promtail/README.md" \
     org.opencontainers.image.created=${BUILD_DATE} \
     org.opencontainers.image.revision=${BUILD_REF} \
     org.opencontainers.image.version=${BUILD_VERSION}
