@@ -6,8 +6,6 @@ slug: promtail
 arch:
   - aarch64
   - amd64
-  - armv7
-  - armhf
 description: Grafana Alloy for Home Assistant
 init: false
 journald: true
