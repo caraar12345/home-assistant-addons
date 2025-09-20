@@ -2,7 +2,6 @@ ARG BUILD_FROM
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
-ARG BUILD_ARCH
 # https://github.com/mikefarah/yq/releases
 ARG YQ_VERSION=4.47.2
 
@@ -16,12 +15,11 @@ RUN set -eux; \
         tar; \
     update-ca-certificates; \
     \
-    case "${BUILD_ARCH}" in \
+    case "${TARGETARCH}" in \
         amd64)  BINARCH='amd64' ;; \
-        armhf)   BINARCH='arm' ;; \
-        armv7)   BINARCH='arm' ;; \
-        aarch64) BINARCH='arm64' ;; \
-        *) echo >&2 "error: unsupported architecture (${APKARCH})"; exit 1 ;; \
+        arm)    BINARCH='arm' ;; \
+        arm64)  BINARCH='arm64' ;; \
+        *) echo >&2 "error: unsupported architecture (${TARGETARCH})"; exit 1 ;; \
     esac; \
     curl -s -J -L -o /tmp/yq.tar.gz \
         "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_${BINARCH}.tar.gz"; \
