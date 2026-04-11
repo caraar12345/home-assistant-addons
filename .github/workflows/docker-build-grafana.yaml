@@ -27,11 +27,11 @@ jobs:
         id: config
         run: |
           # Extract version
-          VERSION=$(yq -r .version grafana/config.yaml)
+          VERSION=$(yq -r .version grafana/grafana/config.yaml)
           echo "version=${VERSION}" >> $GITHUB_OUTPUT
 
           # Extract architectures as a JSON array (e.g., '["aarch64", "amd64"]')
-          ARCHS=$(yq -o=j -I=0 .arch grafana/config.yaml)
+          ARCHS=$(yq -o=j -I=0 .arch grafana/grafana/config.yaml)
           echo "architectures=${ARCHS}" >> $GITHUB_OUTPUT
 
       - name: Prepare build matrix
