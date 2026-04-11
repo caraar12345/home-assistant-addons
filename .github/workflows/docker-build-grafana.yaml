@@ -72,7 +72,7 @@ jobs:
             ${{ github.sha }}
           push: "true"
           version: ${{ needs.init.outputs.version }}
-          context: ./grafana
+          context: ./grafana/grafana
 
   manifest:
     name: Publish multi-arch manifest
