@@ -8,19 +8,83 @@ on:
       - 'grafana/**'
   workflow_dispatch:
 
+env:
+  IMAGE_NAME: hass-addon-grafana
+
 jobs:
-  build:
+  init:
+    name: Initialize build
     runs-on: ubuntu-latest
+    outputs:
+      architectures: ${{ steps.config.outputs.architectures }}
+      version: ${{ steps.config.outputs.version }}
+      matrix: ${{ steps.matrix.outputs.matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build and push
-        uses: home-assistant/builder@master
+      - name: Parse config.yaml
+        id: config
+        run: |
+          # Extract version
+          VERSION=$(yq -r .version grafana/config.yaml)
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+          # Extract architectures as a JSON array (e.g., '["aarch64", "amd64"]')
+          ARCHS=$(yq -o=j -I=0 .arch grafana/config.yaml)
+          echo "architectures=${ARCHS}" >> $GITHUB_OUTPUT
+
+      - name: Prepare build matrix
+        id: matrix
+        uses: home-assistant/builder/actions/prepare-multi-arch-matrix@master
         with:
-          args: |
-            --all
-            --target grafana
-            --image "ghcr.io/${{ github.repository_owner }}/hass-addon-grafana"
-            --docker-user "${{ github.actor }}"
-            --docker-password "${{ secrets.GITHUB_TOKEN }}"
+          architectures: ${{ steps.config.outputs.architectures }}
+          image-name: ${{ env.IMAGE_NAME }}
+
+  build:
+    name: Build ${{ matrix.arch }} image
+    needs: init
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+      id-token: write # Required for Cosign signing
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.init.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build image
+        uses: home-assistant/builder/actions/build-image@master
+        with:
+          arch: ${{ matrix.arch }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image: ${{ matrix.image }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+            ${{ github.sha }}
+          push: "true"
+          version: ${{ needs.init.outputs.version }}
+          context: ./grafana
+
+  manifest:
+    name: Publish multi-arch manifest
+    needs: [init, build]
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # Required for Cosign signing
+      packages: write
+    steps:
+      - name: Publish multi-arch manifest
+        uses: home-assistant/builder/actions/publish-multi-arch-manifest@master
+        with:
+          architectures: ${{ needs.init.outputs.architectures }}
+          container-registry-password: ${{ secrets.GITHUB_TOKEN }}
+          image-name: ${{ env.IMAGE_NAME }}
+          image-tags: |
+            ${{ needs.init.outputs.version }}
+            latest
+            ${{ github.sha }}
