@@ -1,31 +1,89 @@
 name: "Auto-update addon store repository"
+
+# Bumps an add-on submodule pointer when the add-on's own repository signals a
+# new version. The signal is a repository_dispatch of type `addon_update` sent
+# by the add-on repo (see that repo's "Notify addon store" workflow).
+#
+# client_payload:
+#   addon:   submodule path in this repo to update (e.g. "grafana")   [required]
+#   version: git ref/tag/SHA to check out in the submodule            [optional]
+#            if omitted, the submodule's default branch tip is used.
+#
+# NOTE: the commit is pushed with a PAT (secrets.AUTO_UPDATE_TOKEN) rather than
+# the default GITHUB_TOKEN so that the resulting push to `main` is able to
+# trigger the per-addon docker-build workflows (a push made with GITHUB_TOKEN
+# does not start further workflow runs).
 on:
   repository_dispatch:
     types: [addon_update]
+  # Manual fallback so a bump can be forced from the Actions tab.
+  workflow_dispatch:
+    inputs:
+      addon:
+        description: "Submodule path to update (e.g. grafana)"
+        required: true
+      version:
+        description: "Git ref/tag/SHA to check out (blank = default branch tip)"
+        required: false
+
 jobs:
   update_submodule:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          persist-credentials: true
+          token: ${{ secrets.AUTO_UPDATE_TOKEN || secrets.GITHUB_TOKEN }}
+
       - name: Set bot details
         id: bot-details
         uses: raven-actions/bot-details@v1
+
+      - name: Resolve inputs
+        id: vars
+        run: |
+          ADDON="${{ github.event.client_payload.addon || inputs.addon }}"
+          VERSION="${{ github.event.client_payload.version || inputs.version }}"
+          if [ -z "$ADDON" ]; then
+            echo "::error::No addon submodule path provided"
+            exit 1
+          fi
+          echo "addon=$ADDON" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
       - name: Update submodule
         env:
-          ADDON_NAME: ${{ github.event.client_payload.addon }}
-          VERSION: ${{ github.event.client_payload.version }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ADDON_NAME: ${{ steps.vars.outputs.addon }}
+          VERSION: ${{ steps.vars.outputs.version }}
         run: |
-          echo "Addon $ADDON_NAME updated to version $VERSION"
-          gh auth setup-git
-          git submodule update --init $ADDON_NAME
-          cd $ADDON_NAME
+          set -euo pipefail
+
           git config --global user.email "${{ steps.bot-details.outputs.email }}"
           git config --global user.name "${{ steps.bot-details.outputs.name }}"
-          git fetch
-          git checkout $VERSION
-          cd ..
-          git add $ADDON_NAME
-          git commit -m "[$ADDON_NAME] updated to version $VERSION"
-          git push
+
+          echo "Updating submodule '$ADDON_NAME' to '${VERSION:-default branch tip}'"
+          git submodule update --init "$ADDON_NAME"
+
+          (
+            cd "$ADDON_NAME"
+            git fetch --tags --force origin
+            if [ -n "$VERSION" ]; then
+              git checkout --detach "$VERSION"
+            else
+              DEFAULT_BRANCH="$(git remote show origin | sed -n 's/.*HEAD branch: //p')"
+              git checkout --detach "origin/${DEFAULT_BRANCH}"
+            fi
+          )
+
+          if git diff --quiet -- "$ADDON_NAME"; then
+            echo "Submodule '$ADDON_NAME' already at the requested revision; nothing to do."
+            exit 0
+          fi
+
+          git add "$ADDON_NAME"
+          git commit -m "[$ADDON_NAME] update to ${VERSION:-latest}"
+          git push origin HEAD:${{ github.ref_name }}
