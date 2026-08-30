@@ -1,5 +1,5 @@
 name: Cloudflare Speed CLI
-version: 1.0.1
+version: 1.1.0
 slug: cloudflare-speedtest
 description: Internet speed test sensor using Cloudflare's speed.cloudflare.com service
 arch:
@@ -15,7 +15,9 @@ options:
   mqtt_topic: "homeassistant/cloudflare-speedtest"
   mqtt_options: ""
   cron: "0 * * * *"
+  alternate_ip_family: true
 schema:
   mqtt_topic: str
   mqtt_options: str?
   cron: str
+  alternate_ip_family: bool?
