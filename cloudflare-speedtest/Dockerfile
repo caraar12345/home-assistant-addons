@@ -22,7 +22,7 @@ RUN chmod +x /opt/cloudflare-speedtest.sh /opt/entrypoint.sh && \
     wget "${CF_BASE_URL}/${CF_FILE}" -O /var/tmp/${CF_FILE} && \
     wget "${CF_BASE_URL}/${CF_FILE}.sha256" -O /var/tmp/${CF_FILE}.sha256 && \
     cd /var/tmp && \
-    sed 's/\r$//' ${CF_FILE}.sha256 | sha256sum -c - && \
+    sed 's/\r$//' ${CF_FILE}.sha256 | grep -E -v '^[[:space:]]*$' | sha256sum -c - && \
     mkdir -p /var/tmp/cloudflare-speed-cli && \
     tar xf ${CF_FILE} -C /var/tmp/cloudflare-speed-cli && \
     find /var/tmp/cloudflare-speed-cli -type f -name cloudflare-speed-cli -exec mv {} /usr/local/bin/cloudflare-speed-cli \; && \
