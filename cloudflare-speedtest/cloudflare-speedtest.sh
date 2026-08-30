@@ -17,7 +17,11 @@ file=~/cloudflare-speedtest.json
 
 echo "$(date -Iseconds) starting speedtest"
 
-if ! cloudflare-speed-cli --json --silent > "${file}"; then
+# --silent is NOT used here: upstream's --silent suppresses the JSON print
+# entirely (it only writes to its own run-history directory in that mode),
+# so combining it with --json leaves stdout empty. --auto-save false skips
+# that redundant on-disk history since we publish everything to MQTT anyway.
+if ! cloudflare-speed-cli --json --auto-save false > "${file}"; then
   echo "$(date -Iseconds) cloudflare-speed-cli failed, skipping this run"
   exit 1
 fi
@@ -32,7 +36,7 @@ upload=$(jq -r '.upload.mbps' "${file}")
 ping=$(jq -r '.idle_latency.mean_ms' "${file}")
 jitter=$(jq -r '.idle_latency.jitter_ms' "${file}")
 packetloss=$(jq -r '.idle_latency.loss' "${file}")
-colo=$(jq -r '.colo // ""' "${file}")
+colo=$(jq -r '.meta.colo.iata // .colo // ""' "${file}")
 ip=$(jq -r '.ip // ""' "${file}")
 asn=$(jq -r '.asn // ""' "${file}")
 asorg=$(jq -r '.as_org // ""' "${file}")
