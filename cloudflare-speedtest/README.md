@@ -30,8 +30,9 @@ Under `<mqtt_topic>`:
     /as_org       ASN organisation name
     /timestamp    UTC timestamp of the test
 
-MQTT discovery configs are also published for the download, upload, ping, jitter and packet
-loss sensors so Home Assistant will pick them up automatically.
+MQTT discovery configs are also published (under the standard `homeassistant/sensor/...`
+discovery prefix, not `<mqtt_topic>`) for the download, upload, ping, jitter and packet loss
+sensors so Home Assistant will pick them up automatically.
 
 ## Supported architectures
 

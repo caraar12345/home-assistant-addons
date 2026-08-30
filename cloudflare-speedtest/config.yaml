@@ -8,7 +8,6 @@ arch:
 startup: application
 image: "ghcr.io/caraar12345/home-assistant-addons/cloudflare-speedtest"
 boot: auto
-hassio_api: true
 apparmor: true
 services:
   - mqtt:need
