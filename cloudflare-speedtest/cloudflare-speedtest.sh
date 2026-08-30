@@ -1,4 +1,5 @@
 #!/usr/bin/env bashio
+set -uo pipefail
 
 export MQTT_HOST=$(bashio::services mqtt "host")
 export MQTT_PORT=$(bashio::services mqtt "port")
@@ -13,7 +14,15 @@ file=~/cloudflare-speedtest.json
 
 echo "$(date -Iseconds) starting speedtest"
 
-cloudflare-speed-cli --json --silent > "${file}"
+if ! cloudflare-speed-cli --json --silent > "${file}"; then
+  echo "$(date -Iseconds) cloudflare-speed-cli failed, skipping this run"
+  exit 1
+fi
+
+if ! jq -e '.download.mbps and .upload.mbps' "${file}" > /dev/null 2>&1; then
+  echo "$(date -Iseconds) speedtest output missing download/upload fields, skipping this run"
+  exit 1
+fi
 
 download=$(jq -r '.download.mbps' "${file}")
 upload=$(jq -r '.upload.mbps' "${file}")

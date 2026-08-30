@@ -1,8 +1,0 @@
-jobs:
-  - name: cloudflare-speedtest
-    command: /opt/cloudflare-speedtest.sh
-    shell: /bin/bash
-    schedule: "*/5 * * * *"
-    captureStderr: false
-    captureStdout: true
-    concurrencyPolicy: Forbid

@@ -3,7 +3,8 @@ CRON_CONFIG=$(bashio::config 'cron')
 CRON=${CRON_CONFIG:="0 * * * *"}
 echo "cloudflare-speedtest has been started"
 
-sed -i "/schedule/c\    schedule: \"${CRON}\"" /config/crontab.yml
+mkdir -p /etc/crontabs
+echo "${CRON} /opt/cloudflare-speedtest.sh > /proc/1/fd/1 2> /proc/1/fd/2" > /etc/crontabs/root
 
 echo "starting cron (${CRON})"
-/yacronenv/bin/yacron -c /config/crontab.yml
+exec crond -f -d 8
