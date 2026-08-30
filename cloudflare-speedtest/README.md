@@ -16,12 +16,21 @@ test service instead.
     mqtt_topic (Default 'homeassistant/cloudflare-speedtest')
     mqtt_options (Default '')
     cron (Default '0 * * * *' -> run the speed test once an hour)
+    alternate_ip_family (Default true)
+
+When `alternate_ip_family` is enabled, each run forces a single IP family with
+`cloudflare-speed-cli`'s `-4`/`-6` flag, flipping between IPv4 and IPv6 from the
+previous run, so download/upload/latency history covers both instead of always
+whichever family the OS happens to prefer. The chosen family for a run is
+tracked in `/data` (the add-on's own persistent storage) and published as
+`ip_family` alongside the other results. Set `alternate_ip_family: false` to go
+back to a single dual-stack test every run (no `-4`/`-6` flag).
 
 ## Published topics
 
 Under `<mqtt_topic>`:
 
-    /test         JSON blob with download, upload, ping, jitter, packetloss, colo, ip, asn, as_org, timestamp
+    /test         JSON blob with download, upload, ping, jitter, packetloss, colo, ip, asn, as_org, ip_family, timestamp
     /download     Download speed (Mbps)
     /upload       Upload speed (Mbps)
     /ping         Idle latency (ms)
@@ -31,11 +40,13 @@ Under `<mqtt_topic>`:
     /ip           Public IP address seen by Cloudflare
     /asn          ASN of the network under test
     /as_org       ASN organisation name
+    /ip_family    IP family used for this run ("ipv4", "ipv6", or "dual" if alternation is disabled)
     /timestamp    UTC timestamp of the test
 
 MQTT discovery configs are also published (under the standard `homeassistant/sensor/...`
-discovery prefix, not `<mqtt_topic>`) for the download, upload, ping, jitter and packet loss
-sensors so Home Assistant will pick them up automatically.
+discovery prefix, not `<mqtt_topic>`) for the download, upload, ping, jitter, packet loss and
+IP family sensors, all grouped under a single "Cloudflare Speedtest" device so Home Assistant
+will pick them up automatically as one device.
 
 ## Supported architectures
 
