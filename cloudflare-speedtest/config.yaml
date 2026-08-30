@@ -1,0 +1,21 @@
+name: Cloudflare Speed CLI
+version: 1.0.0
+slug: cloudflare-speedtest
+description: Internet speed test sensor using Cloudflare's speed.cloudflare.com service
+arch:
+  - amd64
+  - aarch64
+startup: application
+image: "ghcr.io/caraar12345/home-assistant-addons/cloudflare-speedtest"
+boot: auto
+apparmor: true
+services:
+  - mqtt:need
+options:
+  mqtt_topic: "homeassistant/cloudflare-speedtest"
+  mqtt_options: ""
+  cron: "0 * * * *"
+schema:
+  mqtt_topic: str
+  mqtt_options: str?
+  cron: str
