@@ -1,5 +1,8 @@
 # Cloudflare Speed CLI
 
+> [!WARNING]
+> This was entirely migrated by Claude/vibes from ../speedtest2mqtt. Use at your own risk. 
+
 Home Assistant add-on that runs [cloudflare-speed-cli](https://github.com/kavehtehrani/cloudflare-speed-cli)
 against Cloudflare's `speed.cloudflare.com` service on a cron schedule and publishes the
 results (plus MQTT discovery config) to your MQTT broker.
