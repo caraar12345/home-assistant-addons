@@ -35,7 +35,7 @@ ENTRYPOINT /opt/entrypoint.sh
 LABEL org.opencontainers.artifact.created $BUILD_TIME
 LABEL org.opencontainers.image.created $BUILD_TIME
 LABEL org.opencontainers.image.source https://github.com/caraar12345/home-assistant-addons
-LABEL org.opencontinaers.image.authors "Aaron Carson <aaron@aaroncarson.co.uk>"
+LABEL org.opencontainers.image.authors "Aaron Carson <aaron@aaroncarson.co.uk>"
 LABEL org.opencontainers.image.version $BUILD_VERSION
 LABEL org.opencontainers.image.licenses "MIT"
 LABEL org.opencontainers.image.revision $BUILD_REVISION
