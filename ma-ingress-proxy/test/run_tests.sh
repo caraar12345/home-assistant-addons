@@ -44,14 +44,22 @@ done
 
 curl -s -X POST http://127.0.0.1:18095/setup -H 'Content-Type: application/json' \
 	-d '{"username":"sidecar-admin","password":"SidecarAdminPassw0rd!"}' >/dev/null
-sleep 2
 
 SUPERVISOR="docker exec test-supervisor-stand-in-1 curl -s"
 ATTACKER="docker exec test-attacker-stand-in-1 curl -s"
 BASE="http://172.30.33.12:8099"
 
 # Case 4: no X-Remote-User-Id -> 403, nothing forwarded upstream
-status=$($SUPERVISOR -o /dev/null -w '%{http_code}' "${BASE}/api")
+# `depends_on` only orders container start, it does not wait for Caddy or the sidecar to
+# actually accept requests, so poll /api (never /, which redirects via the bootstrap
+# route) until the stack is up rather than relying on a fixed sleep.
+echo "Waiting for the Caddy + sidecar proxy stack to accept requests..."
+status="000"
+for _ in $(seq 1 30); do
+	status=$($SUPERVISOR -o /dev/null -w '%{http_code}' "${BASE}/api" 2>/dev/null || echo 000)
+	[[ "$status" == "403" ]] && break
+	sleep 1
+done
 check "case 4: missing identity header -> 403" "403" "$status"
 
 # Case 6: non-Supervisor source address -> 403 regardless of headers
@@ -106,7 +114,7 @@ check "case 8: recovers without sidecar restart" "200" "$status"
 docker stop test-supervisor-stand-in-1 >/dev/null
 if docker run --rm --network test_ma-test --ip 172.30.32.2 \
 	-v "$(pwd)/case9_check.py:/check.py:ro" python:3.13-slim \
-	sh -c "pip install --quiet --root-user-action=ignore websockets && python3 /check.py ${BASE}"; then
+	sh -c "pip install --quiet --root-user-action=ignore 'websockets>=14.0' && python3 /check.py ${BASE}"; then
 	check "case 9: bootstrap token authenticates real WS session" "0" "0"
 else
 	check "case 9: bootstrap token authenticates real WS session" "0" "1"
