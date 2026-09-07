@@ -11,6 +11,7 @@ export MA_VERIFY_SSL
 export MA_DEFAULT_ROLE
 export MA_ADMIN_HA_USER_IDS
 export LOG_LEVEL
+export AGE_IDENTITY
 export SIDECAR_DATA_DIR=/data
 
 MA_URL="$(bashio::config 'ma_url')"
@@ -20,6 +21,13 @@ MA_VERIFY_SSL="$(bashio::config 'verify_ssl')"
 MA_DEFAULT_ROLE="$(bashio::config 'default_role')"
 MA_ADMIN_HA_USER_IDS="$(bashio::config 'admin_ha_user_ids | join(",")')"
 LOG_LEVEL="$(bashio::config 'log_level')"
+AGE_IDENTITY="$(bashio::config 'age_identity')"
+
+if bashio::config.has_value 'age_identity'; then
+    bashio::log.info "age_identity configured, the admin token will be encrypted at rest"
+else
+    bashio::log.info "No age_identity configured, the admin token will be stored in plaintext"
+fi
 
 bashio::log.info "Starting the ingress identity sidecar..."
 cd /opt/sidecar

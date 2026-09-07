@@ -1,6 +1,6 @@
 ---
 name: Music Assistant Ingress Proxy
-version: 1.0.0
+version: 1.1.0
 slug: ma-ingress-proxy
 description: Put an externally hosted Music Assistant server in the Home Assistant sidebar with per-user authentication
 url: https://github.com/caraar12345/home-assistant-addons/blob/main/ma-ingress-proxy
@@ -20,6 +20,7 @@ options:
   default_role: user
   admin_ha_user_ids: []
   log_level: info
+  age_identity: ""
 schema:
   # Must be HTTPS: Caddy forwards the sidecar-minted Authorization bearer token (and,
   # during admin bootstrap, the admin password) to this URL on every request. Plain
@@ -32,3 +33,4 @@ schema:
   admin_ha_user_ids:
     - str
   log_level: list(trace|debug|info|notice|warning|error|fatal)?
+  age_identity: password?

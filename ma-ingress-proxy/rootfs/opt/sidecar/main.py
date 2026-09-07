@@ -27,6 +27,7 @@ import sys
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode
 
 import jwt as pyjwt
@@ -44,6 +45,7 @@ LOGGER = logging.getLogger("ma_ingress_proxy.sidecar")
 DATA_DIR = Path(os.environ.get("SIDECAR_DATA_DIR", "/data"))
 MAPPING_FILE = DATA_DIR / "mapping.json"
 ADMIN_TOKEN_FILE = DATA_DIR / "admin_token.json"
+ADMIN_TOKEN_FILE_ENCRYPTED = DATA_DIR / "admin_token.json.age"
 
 MA_URL = os.environ["MA_URL"].rstrip("/")
 MA_ADMIN_USERNAME = os.environ["MA_ADMIN_USERNAME"]
@@ -58,6 +60,10 @@ LISTEN_PORT = int(os.environ.get("SIDECAR_PORT", "9000"))
 # loopback in production so nothing else on the container's network can call it directly
 # and bypass Caddy's Supervisor-IP allowlist. Overridable for the split-container test harness.
 LISTEN_HOST = os.environ.get("SIDECAR_HOST", "127.0.0.1")
+# Mirrors this repository's caddy-2 add-on's age_identity option: an X25519 age
+# identity (private key), pasted directly into the add-on config. Unset skips
+# encryption entirely, same as caddy-2's "secret decryption is skipped" behaviour.
+AGE_IDENTITY = os.environ.get("AGE_IDENTITY", "").strip()
 ADMIN_TOKEN_NAME = "ha-ingress-proxy:admin"
 TOKEN_NAME_PREFIX = "ha-ingress:"
 BOOTSTRAP_TOKEN_NAME_PREFIX = "ha-ingress-bootstrap:"
@@ -84,6 +90,56 @@ class AuthzError(Exception):
         self.reason = reason
 
 
+async def _run_age(*args: str, input_bytes: bytes | None = None) -> bytes:
+    proc = await asyncio.create_subprocess_exec(
+        *args,
+        stdin=asyncio.subprocess.PIPE if input_bytes is not None else None,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate(input_bytes)
+    if proc.returncode != 0:
+        raise RuntimeError(f"{args[0]} failed: {stderr.decode(errors='replace').strip()}")
+    return stdout
+
+
+class AgeCrypto:
+    """Encrypts/decrypts small values at rest using the configured age identity.
+
+    Mirrors this repository's caddy-2 add-on: a single `age_identity` option holds an
+    X25519 age identity (private key), pasted directly into the add-on config. Unlike
+    caddy-2 - which only ever decrypts a secrets file a human encrypted themselves with
+    `age -r <recipient>` - this sidecar originates the secret it needs to persist (the
+    admin token) itself, so it also needs the matching recipient (public key) to encrypt
+    with. That's derived from the identity via `age-keygen -y` rather than asking the
+    user to separately track and paste a public key too.
+    """
+
+    def __init__(self, identity: str) -> None:
+        self.enabled = bool(identity)
+        self._identity_path: Path | None = None
+        self._recipient: str | None = None
+        if self.enabled:
+            # /run is tmpfs: the plaintext identity never touches the persistent /data
+            # volume, and is gone the moment the container stops.
+            self._identity_path = Path(f"/run/age-identity-{secrets.token_hex(8)}")
+            self._identity_path.write_text(identity + "\n")
+            self._identity_path.chmod(0o600)
+
+    async def _recipient_key(self) -> str:
+        if self._recipient is None:
+            out = await _run_age("age-keygen", "-y", str(self._identity_path))
+            self._recipient = out.decode().strip()
+        return self._recipient
+
+    async def encrypt(self, plaintext: bytes) -> bytes:
+        recipient = await self._recipient_key()
+        return await _run_age("age", "-r", recipient, input_bytes=plaintext)
+
+    async def decrypt(self, ciphertext: bytes) -> bytes:
+        return await _run_age("age", "-d", "-i", str(self._identity_path), input_bytes=ciphertext)
+
+
 @dataclass
 class CachedToken:
     token: str
@@ -98,6 +154,7 @@ class Sidecar:
         self._admin_token: str | None = None
         self._admin_token_lock = asyncio.Lock()
         self._pending_revocations: set[asyncio.Task[None]] = set()
+        self._age = AgeCrypto(AGE_IDENTITY)
         self._ssl_context: ssl.SSLContext | None = None
         if not VERIFY_SSL:
             self._ssl_context = ssl.create_default_context()
@@ -178,10 +235,78 @@ class Sidecar:
                     await client.auth.revoke_token(existing.token_id)
             admin_token: str = await client.auth.create_token(ADMIN_TOKEN_NAME)
 
-        DATA_DIR.mkdir(parents=True, exist_ok=True)
-        ADMIN_TOKEN_FILE.write_text(json.dumps({"token": admin_token}))
+        await self._save_encrypted_json(
+            {"token": admin_token}, ADMIN_TOKEN_FILE, ADMIN_TOKEN_FILE_ENCRYPTED
+        )
         LOGGER.info("Minted a new admin token for the sidecar")
         return admin_token
+
+    async def _load_admin_token(self) -> str | None:
+        data = await self._load_encrypted_json(
+            ADMIN_TOKEN_FILE, ADMIN_TOKEN_FILE_ENCRYPTED, "admin token"
+        )
+        try:
+            return None if data is None else data["token"]
+        except KeyError:
+            LOGGER.warning("Stored admin token file missing its token field, re-bootstrapping")
+            return None
+
+    # --------------------------------------------------------- encrypted storage
+
+    async def _save_encrypted_json(
+        self, data: dict[str, Any], plain_path: Path, encrypted_path: Path
+    ) -> None:
+        """Persist a JSON-serializable value, encrypted at rest when age is configured.
+
+        Removes any plaintext copy left over from before encryption was turned on, so a
+        secret is never readable from two places at once.
+        """
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        payload = json.dumps(data, indent=2, sort_keys=True).encode()
+        if self._age.enabled:
+            encrypted = await self._age.encrypt(payload)
+            tmp_path = encrypted_path.with_suffix(".tmp")
+            tmp_path.write_bytes(encrypted)
+            tmp_path.replace(encrypted_path)
+            if plain_path.exists():
+                plain_path.unlink()
+        else:
+            tmp_path = plain_path.with_suffix(".tmp")
+            tmp_path.write_bytes(payload)
+            tmp_path.replace(plain_path)
+
+    async def _load_encrypted_json(
+        self, plain_path: Path, encrypted_path: Path, description: str
+    ) -> dict[str, Any] | None:
+        """Load a value persisted by _save_encrypted_json(), decrypting when required.
+
+        Migrates a plaintext file left over from before encryption was turned on: reads
+        it once, then immediately re-persists it so it ends up encrypted and the
+        plaintext copy is removed, rather than waiting for its next natural rewrite.
+        """
+        if self._age.enabled:
+            if encrypted_path.exists():
+                try:
+                    decrypted = await self._age.decrypt(encrypted_path.read_bytes())
+                    return json.loads(decrypted)
+                except Exception:
+                    LOGGER.warning("Stored %s could not be decrypted", description, exc_info=True)
+                    return None
+            data = self._read_plain_json(plain_path, description)
+            if data is not None:
+                LOGGER.info("Migrating stored %s to age-encrypted storage", description)
+                await self._save_encrypted_json(data, plain_path, encrypted_path)
+            return data
+        return self._read_plain_json(plain_path, description)
+
+    def _read_plain_json(self, path: Path, description: str) -> dict[str, Any] | None:
+        if not path.exists():
+            return None
+        try:
+            return json.loads(path.read_text())
+        except (json.JSONDecodeError, OSError):
+            LOGGER.warning("Stored %s unreadable", description)
+            return None
 
     async def _get_admin_token(self) -> str:
         if self._admin_token:
@@ -189,12 +314,10 @@ class Sidecar:
         async with self._admin_token_lock:
             if self._admin_token:
                 return self._admin_token
-            if ADMIN_TOKEN_FILE.exists():
-                try:
-                    self._admin_token = json.loads(ADMIN_TOKEN_FILE.read_text())["token"]
-                    return self._admin_token
-                except (json.JSONDecodeError, OSError, KeyError):
-                    LOGGER.warning("Stored admin token unreadable, re-bootstrapping")
+            stored = await self._load_admin_token()
+            if stored is not None:
+                self._admin_token = stored
+                return self._admin_token
             self._admin_token = await self._bootstrap_admin_token()
             return self._admin_token
 

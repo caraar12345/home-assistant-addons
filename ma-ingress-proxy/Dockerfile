@@ -6,6 +6,7 @@ RUN set -eux; \
     apt-get update; \
     apt-get upgrade -y; \
     apt-get install -qy --no-install-recommends \
+        age \
         ca-certificates \
         python3 \
         python3-venv \

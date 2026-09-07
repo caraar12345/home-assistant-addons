@@ -117,6 +117,41 @@ user to get a *fresh* Music Assistant account rather than staying locked out.
 | `default_role` | `user` \| `admin` | Role for newly seen Home Assistant users. Default `user`. |
 | `admin_ha_user_ids` | list of strings | Home Assistant user IDs to provision as Music Assistant admins. |
 | `log_level` | list | Log verbosity for Caddy and the sidecar. Default `info`. |
+| `age_identity` | password | Optional. Encrypts the persisted admin token at rest. See "Age-Encrypted Admin Token" below. |
+
+## Age-Encrypted Admin Token
+
+This add-on persists one secret to disk: the admin token it mints for itself from your
+`ma_admin_username`/`ma_admin_password` (`/data/admin_token.json`), so it doesn't have to
+spend your admin password logging in again on every restart. Setting `age_identity`
+encrypts that file at rest, the same way this repository's `caddy-2` add-on encrypts its
+own secrets - but automatically, in both directions, since this add-on originates the
+secret itself rather than decrypting one you encrypted yourself.
+
+### Setup
+
+1. Generate an age identity (if you don't already have one for this purpose):
+
+```sh
+age-keygen -o identity.txt
+```
+
+2. Paste the contents of `identity.txt` (starts with `AGE-SECRET-KEY-1...`) into the
+   `age_identity` option.
+
+That's it - there's no separate encrypt step and no public key to manage. The sidecar
+derives its own recipient from the identity (`age-keygen -y`) and encrypts
+`/data/admin_token.json.age` itself every time it mints a new admin token. If an existing
+plaintext `/data/admin_token.json` is found the first time `age_identity` is set, it's
+read once, immediately re-encrypted, and the plaintext copy is removed - no separate
+migration step is needed.
+
+Leave `age_identity` blank to store the admin token in plaintext, as before.
+
+**Scope**: this only covers the admin token. The mapping file (`/data/mapping.json`) holds
+no secrets - just Home Assistant user ID to Music Assistant user ID correlations - and
+per-user API tokens are never written to disk at all; they live only in the sidecar's
+memory and are re-minted (revoking the previous one) whenever a restart clears that cache.
 
 ## Security model
 

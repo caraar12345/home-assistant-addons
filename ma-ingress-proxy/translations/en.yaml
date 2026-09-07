@@ -20,3 +20,6 @@ configuration:
   log_level:
     name: Log level
     description: Log verbosity for both Caddy and the sidecar service.
+  age_identity:
+    name: Age identity
+    description: Optional age identity (private key, e.g. AGE-SECRET-KEY-1...) used to encrypt the admin token at rest. Leave blank to store it in plaintext. See README.md.
