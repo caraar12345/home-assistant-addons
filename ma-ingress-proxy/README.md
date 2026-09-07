@@ -63,6 +63,13 @@ database about two minutes later - long enough to survive a slow page load, shor
 that a copy of the URL captured afterwards is worthless. See "Known limitations" for the
 full reasoning.
 
+The per-user tokens Caddy injects as `Authorization` are cached in the sidecar's memory
+only - never written to disk - and every add-on restart revokes all of them from Music
+Assistant outright before accepting any requests, rather than leaving them to sit unused
+until they'd naturally expire a year later (which could otherwise happen indefinitely for
+a Home Assistant user who's since lost access but never revisits the panel). The very
+next request from each Home Assistant user simply mints a fresh one, transparently.
+
 ## Setup
 
 1. In Music Assistant, create a **dedicated admin account** for this add-on - do not
@@ -150,8 +157,10 @@ Leave `age_identity` blank to store the admin token in plaintext, as before.
 
 **Scope**: this only covers the admin token. The mapping file (`/data/mapping.json`) holds
 no secrets - just Home Assistant user ID to Music Assistant user ID correlations - and
-per-user API tokens are never written to disk at all; they live only in the sidecar's
-memory and are re-minted (revoking the previous one) whenever a restart clears that cache.
+per-user API tokens are never written to disk at all. They live only in the sidecar's
+memory, and every restart revokes all of them from Music Assistant outright (see "How it
+works") rather than leaving them to expire naturally, so there's never a per-user token on
+disk to protect in the first place.
 
 ## Security model
 
@@ -248,8 +257,10 @@ This exercises: an unknown user's first request being provisioned and reaching M
 Assistant; a client-supplied `Authorization` header being overridden; a non-Supervisor
 source address and a missing identity header both being refused; two distinct Home
 Assistant users getting two distinct Music Assistant identities; Music Assistant going
-down and the sidecar recovering without a restart; and, as a stand-in for a real browser,
-a raw WebSocket client using the bootstrap redirect's token to authenticate a session the
-same way Music Assistant's own frontend does. It does not drive an actual browser end to
+down and the sidecar recovering without a restart; a sidecar restart revoking every
+previously provisioned user's token while leaving the admin token itself alone; and, as a
+stand-in for a real browser, a raw WebSocket client using the bootstrap redirect's token
+to authenticate a session the same way Music Assistant's own frontend does. It does not
+drive an actual browser end to
 end - if you change the Caddyfile or the sidecar's `/bootstrap` route, load the panel in a
 real browser afterwards.

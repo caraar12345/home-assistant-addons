@@ -533,6 +533,39 @@ class Sidecar:
         )
         return user.user_id
 
+    async def wipe_stale_tokens(self) -> None:
+        """Revoke every ha-ingress/ha-ingress-bootstrap token, for every user, at startup.
+
+        The per-user token cache lives in memory only and does not survive a restart, so
+        this gives Music Assistant a matching clean slate: a restart is a firm boundary
+        after which no previously minted per-user token remains valid, rather than
+        leaving old tokens to linger on Music Assistant's side until the next time that
+        particular user happens to reopen the panel - which may be a long time, or never,
+        if they've since lost access. The admin token (a different name prefix,
+        `ha-ingress-proxy:admin`) is untouched - it's infrastructure the sidecar needs to
+        do this wipe in the first place, not a per-request artifact.
+
+        Best-effort: Music Assistant being briefly unreachable at startup must not crash
+        the sidecar. Anything left behind because of that is still bounded by the
+        existing revoke-before-mint step the next time that user opens the panel.
+        """
+        try:
+            async with await self._admin_client() as client:
+                revoked = 0
+                for user in await client.auth.list_users():
+                    for token in await client.auth.get_tokens(user.user_id):
+                        if token.name.startswith(TOKEN_NAME_PREFIX) or token.name.startswith(
+                            BOOTSTRAP_TOKEN_NAME_PREFIX
+                        ):
+                            await client.auth.revoke_token(token.token_id)
+                            revoked += 1
+                if revoked:
+                    LOGGER.info(
+                        "Startup: revoked %d per-user token(s) from a previous run", revoked
+                    )
+        except Exception:  # noqa: BLE001 - never block startup over this
+            LOGGER.warning("Failed to wipe stale per-user tokens at startup", exc_info=True)
+
 
 def _derive_username(ha_user_id: str, ha_username: str | None) -> str:
     if ha_username:
@@ -619,8 +652,15 @@ def create_app(sidecar: Sidecar) -> web.Application:
     async def healthz(_request: web.Request) -> web.Response:
         return web.Response(status=200, text="ok")
 
+    async def _on_startup(_app: web.Application) -> None:
+        # Runs before the server starts accepting connections, so no request can mint a
+        # fresh per-user token that this wipe would then immediately (and incorrectly)
+        # revoke out from under it.
+        await sidecar.wipe_stale_tokens()
+
     app = web.Application()
     app.add_routes(routes)
+    app.on_startup.append(_on_startup)
     return app
 
 

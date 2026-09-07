@@ -1,6 +1,6 @@
 ---
 name: Music Assistant Ingress Proxy
-version: 1.1.0
+version: 1.2.0
 slug: ma-ingress-proxy
 description: Put an externally hosted Music Assistant server in the Home Assistant sidebar with per-user authentication
 url: https://github.com/caraar12345/home-assistant-addons/blob/main/ma-ingress-proxy

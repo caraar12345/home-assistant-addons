@@ -107,6 +107,24 @@ status=$($SUPERVISOR -o /dev/null -w '%{http_code}' "${BASE}/auth/me" \
 	-H 'X-Remote-User-Id: ha-user-eve' -H 'X-Remote-User-Name: eve')
 check "case 8: recovers without sidecar restart" "200" "$status"
 
+# Case: sidecar restart wipes every per-user token it previously minted (carol and dave
+# from case 1/10 above), while leaving the admin token itself alone (no re-bootstrap).
+admin_token_before=$(docker exec test-sidecar-1 cat /data/admin_token.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+docker compose restart sidecar >/dev/null
+for _ in $(seq 1 30); do
+	docker run --rm --network test_ma-test curlimages/curl -sf -o /dev/null "http://sidecar:9000/healthz" && break
+	sleep 1
+done
+admin_token_after=$(docker exec test-sidecar-1 cat /data/admin_token.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+check "case wipe-on-boot: admin token reused, not re-minted" "$admin_token_before" "$admin_token_after"
+
+carol_tokens=$(curl -s -X POST http://127.0.0.1:18095/api -H "Authorization: Bearer ${admin_token_after}" \
+	-d '{"message_id":"1","command":"auth/tokens","args":{"user_id":"'"${carol_id}"'"}}')
+dave_tokens=$(curl -s -X POST http://127.0.0.1:18095/api -H "Authorization: Bearer ${admin_token_after}" \
+	-d '{"message_id":"1","command":"auth/tokens","args":{"user_id":"'"${dave_id}"'"}}')
+check "case wipe-on-boot: carol's old token revoked" "[]" "$carol_tokens"
+check "case wipe-on-boot: dave's old token revoked" "[]" "$dave_tokens"
+
 # Case 9 (mechanism check): the bootstrap redirect's token authenticates a real
 # WebSocket session as the right user, the same mechanism the Music Assistant
 # frontend uses after reading its ?code= query parameter. Must run from Supervisor's
