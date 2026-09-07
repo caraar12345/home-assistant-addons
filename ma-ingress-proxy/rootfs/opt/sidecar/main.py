@@ -60,9 +60,19 @@ LISTEN_PORT = int(os.environ.get("SIDECAR_PORT", "9000"))
 LISTEN_HOST = os.environ.get("SIDECAR_HOST", "127.0.0.1")
 ADMIN_TOKEN_NAME = "ha-ingress-proxy:admin"
 TOKEN_NAME_PREFIX = "ha-ingress:"
+BOOTSTRAP_TOKEN_NAME_PREFIX = "ha-ingress-bootstrap:"
 # Refresh a cached/minted token this long before its real expiry, so it never gets
 # handed out and then rejected by Music Assistant moments later.
 EXPIRY_SAFETY_MARGIN_SECONDS = 300
+# Music Assistant's admin-mint API (auth/token/create) can only ever create long-lived
+# (365-day) tokens - there is no primitive for minting a short-lived one for another
+# user. A bootstrap token is handed to the browser in a URL query string, so its real
+# exposure window must not be "a year": this proactively revokes it from Music
+# Assistant's own token database shortly after issuing it, which kills it immediately
+# regardless of what its JWT `exp` claim still says. Generous enough to survive a slow
+# page load; short enough that a URL captured from logs or browser history afterwards
+# is worthless.
+BOOTSTRAP_TOKEN_LIFETIME_SECONDS = 120
 
 
 class AuthzError(Exception):
@@ -87,6 +97,7 @@ class Sidecar:
         self._mapping_lock = asyncio.Lock()
         self._admin_token: str | None = None
         self._admin_token_lock = asyncio.Lock()
+        self._pending_revocations: set[asyncio.Task[None]] = set()
         self._ssl_context: ssl.SSLContext | None = None
         if not VERIFY_SSL:
             self._ssl_context = ssl.create_default_context()
@@ -230,54 +241,124 @@ class Sidecar:
             self._cache[ha_user_id] = CachedToken(token=token, expires_at=expires_at)
             return token
 
+    async def mint_bootstrap_token(
+        self, ha_user_id: str, ha_username: str | None, ha_display_name: str | None
+    ) -> str:
+        """Mint a one-shot token for the SPA bootstrap redirect, never the cached API token.
+
+        Unlike resolve_token(), this never reuses or extends the long-lived token Caddy
+        injects as the Authorization header on ordinary requests - that one must keep
+        working for the life of the cache entry, so it cannot also be a token that gets
+        revoked minutes after being handed out in a URL. See BOOTSTRAP_TOKEN_LIFETIME_SECONDS.
+        """
+        async with self._lock_for(ha_user_id):
+            async with await self._admin_client() as client:
+                ma_user_id = await self._ensure_ma_user(
+                    client, ha_user_id, ha_username, ha_display_name
+                )
+                token, token_id = await self._revoke_and_mint(
+                    client,
+                    ma_user_id,
+                    f"{BOOTSTRAP_TOKEN_NAME_PREFIX}{ha_user_id}",
+                    ha_user_id,
+                )
+        self._schedule_bootstrap_revocation(token_id)
+        return token
+
+    async def _ensure_ma_user(
+        self,
+        client: MusicAssistantClient,
+        ha_user_id: str,
+        ha_username: str | None,
+        ha_display_name: str | None,
+    ) -> str:
+        """Look up this Home Assistant user's Music Assistant user id, provisioning it if new."""
+        mapping = self._load_mapping()
+        ma_user_id = mapping.get(ha_user_id)
+        if ma_user_id is not None:
+            return ma_user_id
+
+        ma_user_id = await self._provision_user(client, ha_user_id, ha_username, ha_display_name)
+        async with self._mapping_lock:
+            mapping = self._load_mapping()
+            mapping[ha_user_id] = ma_user_id
+            self._save_mapping(mapping)
+        return ma_user_id
+
+    async def _revoke_and_mint(
+        self, client: MusicAssistantClient, ma_user_id: str, token_name: str, ha_user_id: str
+    ) -> tuple[str, str]:
+        """Revoke any existing token with this exact name for the user, then mint a fresh one.
+
+        Token values are not recoverable from Music Assistant, so a sidecar restart cannot
+        reuse the last one, and every restart (or bootstrap redirect) would otherwise leave
+        another 365-day token behind if the old one weren't revoked first.
+
+        :return: The new token and its token_id (needed by callers that self-revoke it later).
+        """
+        try:
+            for existing in await client.auth.get_tokens(ma_user_id):
+                if existing.name == token_name:
+                    await client.auth.revoke_token(existing.token_id)
+
+            token = await client.auth.create_token(token_name, user_id=ma_user_id)
+        except InsufficientPermissions as err:
+            # Guests cannot hold long-lived tokens by design - never silently
+            # re-provision a fresh account to work around that.
+            LOGGER.warning(
+                "Refusing to mint a token for HA user %s (ma user %s): %s",
+                ha_user_id,
+                ma_user_id,
+                err,
+            )
+            raise AuthzError(403, str(err)) from err
+        except InvalidDataError as err:
+            # The mapped MA user no longer exists or was disabled - fail closed
+            # rather than silently provisioning a replacement account, which
+            # would undo an admin's deliberate decision.
+            LOGGER.warning(
+                "Refusing to mint a token for HA user %s (ma user %s): %s",
+                ha_user_id,
+                ma_user_id,
+                err,
+            )
+            raise AuthzError(403, str(err)) from err
+
+        for token_row in await client.auth.get_tokens(ma_user_id):
+            if token_row.name == token_name:
+                return token, token_row.token_id
+        # Unreachable in practice: create_token() just created this row.
+        raise AuthzError(502, "Minted token vanished before it could be tracked for revocation")
+
+    def _schedule_bootstrap_revocation(self, token_id: str) -> None:
+        task = asyncio.create_task(self._revoke_bootstrap_token_after_delay(token_id))
+        self._pending_revocations.add(task)
+        task.add_done_callback(self._pending_revocations.discard)
+
+    async def _revoke_bootstrap_token_after_delay(self, token_id: str) -> None:
+        await asyncio.sleep(BOOTSTRAP_TOKEN_LIFETIME_SECONDS)
+        try:
+            async with await self._admin_client() as client:
+                await client.auth.revoke_token(token_id)
+        except Exception:  # noqa: BLE001 - best-effort cleanup, never crash the sidecar over it
+            LOGGER.warning(
+                "Failed to self-revoke bootstrap token %s; it will still expire in a year "
+                "unless revoked another way",
+                token_id,
+                exc_info=True,
+            )
+
     async def _provision_and_mint(
         self, ha_user_id: str, ha_username: str | None, ha_display_name: str | None
     ) -> str:
         async with await self._admin_client() as client:
-            mapping = self._load_mapping()
-            ma_user_id = mapping.get(ha_user_id)
-
-            if ma_user_id is None:
-                ma_user_id = await self._provision_user(
-                    client, ha_user_id, ha_username, ha_display_name
-                )
-                async with self._mapping_lock:
-                    mapping = self._load_mapping()
-                    mapping[ha_user_id] = ma_user_id
-                    self._save_mapping(mapping)
-
-            # Revoke any previous ingress token for this user before minting a new one:
-            # token values are not recoverable from Music Assistant, so a sidecar restart
-            # cannot reuse the last one, and every restart would otherwise leave behind
-            # another 365-day token.
-            token_name = f"{TOKEN_NAME_PREFIX}{ha_user_id}"
-            try:
-                for existing in await client.auth.get_tokens(ma_user_id):
-                    if existing.name == token_name:
-                        await client.auth.revoke_token(existing.token_id)
-
-                return await client.auth.create_token(token_name, user_id=ma_user_id)
-            except InsufficientPermissions as err:
-                # Guests cannot hold long-lived tokens by design - never silently
-                # re-provision a fresh account to work around that.
-                LOGGER.warning(
-                    "Refusing to mint a token for HA user %s (ma user %s): %s",
-                    ha_user_id,
-                    ma_user_id,
-                    err,
-                )
-                raise AuthzError(403, str(err)) from err
-            except InvalidDataError as err:
-                # The mapped MA user no longer exists or was disabled - fail closed
-                # rather than silently provisioning a replacement account, which
-                # would undo an admin's deliberate decision.
-                LOGGER.warning(
-                    "Refusing to mint a token for HA user %s (ma user %s): %s",
-                    ha_user_id,
-                    ma_user_id,
-                    err,
-                )
-                raise AuthzError(403, str(err)) from err
+            ma_user_id = await self._ensure_ma_user(
+                client, ha_user_id, ha_username, ha_display_name
+            )
+            token, _token_id = await self._revoke_and_mint(
+                client, ma_user_id, f"{TOKEN_NAME_PREFIX}{ha_user_id}", ha_user_id
+            )
+            return token
 
     async def _provision_user(
         self,
@@ -352,15 +433,27 @@ def create_app(sidecar: Sidecar) -> web.Application:
     async def bootstrap(request: web.Request) -> web.Response:
         """Redirect the bare SPA entrypoint to itself with a bearer token attached.
 
-        The Music Assistant frontend accepts a `?code=<access_token>` query parameter on
-        its login screen (the same mechanism its Home Assistant OAuth provider uses on
-        its callback) and stores it for the browser session. This lets a Home Assistant
-        user land in a fully authenticated Music Assistant session without ever seeing a
-        Music Assistant login form, without any change to Music Assistant itself.
+        The Music Assistant frontend accepts a `?code=<access_token>` query parameter
+        (`Login.vue`'s `authManager.setToken(authCode)`, gated on `authCode.length > 8` to
+        tell it apart from the unrelated 8-character party/QR join code) and stores it for
+        the browser session - the same mechanism the server's own `build_code_redirect_url`
+        helper uses for its "Sign in with Home Assistant" OAuth callback and first-run setup
+        redirects. This lets a Home Assistant user land in a fully authenticated Music
+        Assistant session without ever seeing a Music Assistant login form, without any
+        change to Music Assistant itself. Confirmed empirically that the alternative -
+        Caddy injecting the Authorization header directly on the /ws upgrade request - does
+        NOT authenticate the resulting session: Music Assistant's websocket handler never
+        reads that header, only its own in-band `auth` command or a real ingress-bound
+        socket (see README's "Known limitations"), so a token has to reach the browser's own
+        JS one way or another.
+
+        Mints a short-lived-in-practice token via mint_bootstrap_token() rather than the
+        cached, long-lived one /authorize hands out - the latter must keep working for the
+        life of the cache entry and must never sit in a URL, browser history, or a log line.
         """
         try:
             ha_user_id, ha_username, ha_display_name = _extract_ha_headers(request)
-            token = await sidecar.resolve_token(ha_user_id, ha_username, ha_display_name)
+            token = await sidecar.mint_bootstrap_token(ha_user_id, ha_username, ha_display_name)
         except AuthzError as err:
             LOGGER.info("Denying bootstrap request: %s", err.reason)
             return web.Response(status=err.status, text=err.reason)

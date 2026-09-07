@@ -37,11 +37,31 @@ Two processes run in this add-on's container:
 
 On the very first request for a page load, the sidecar also has Caddy redirect the browser
 to itself with `?code=<token>` appended. Music Assistant's frontend already reads that
-query parameter (the same mechanism its "Sign in with Home Assistant" OAuth provider's
-callback uses) and stores the token for its own use - this is how the interactive panel
-ends up logged in as your Music Assistant account without ever showing a Music Assistant
-login screen. See "Known limitations" below for why this detail matters for future
-maintenance.
+query parameter (`Login.vue`'s `authManager.setToken(authCode)`, gated on the code being
+longer than 8 characters so it isn't confused with the unrelated party/QR join code) and
+stores the token for its own use - the same mechanism the server's own
+`build_code_redirect_url` helper uses for its "Sign in with Home Assistant" OAuth callback
+and first-run setup redirects. This is how the interactive panel ends up logged in as your
+Music Assistant account without ever showing a Music Assistant login screen.
+
+This is necessary because injecting the `Authorization` header does not, on its own,
+authenticate the panel's live session: Music Assistant's frontend talks to the server over
+a single WebSocket, and that connection only becomes authenticated via its own in-band
+`auth` command carrying a literal token, or a real Supervisor-bound ingress socket (which
+an external server can never have - see "Why this add-on exists"). Caddy injecting the
+header on the `/ws` upgrade request specifically was tested directly against a real Music
+Assistant server and confirmed to do nothing: the server never reads that header for the
+websocket handshake. A token has to reach the browser's own JavaScript one way or another,
+which is what the redirect is for.
+
+The token in that redirect is **not** the same long-lived token Caddy injects as the
+`Authorization` header on ordinary requests. A URL query parameter ends up in browser
+history and, potentially, logs, so handing out a credential that stays valid for a year
+there would be reckless. The sidecar instead mints a dedicated, single-purpose token for
+each bootstrap redirect and proactively revokes it from Music Assistant's own token
+database about two minutes later - long enough to survive a slow page load, short enough
+that a copy of the URL captured afterwards is worthless. See "Known limitations" for the
+full reasoning.
 
 ## Setup
 
@@ -117,18 +137,45 @@ user to get a *fresh* Music Assistant account rather than staying locked out.
 - Guest accounts are excluded by design - Music Assistant itself refuses to mint
   long-lived tokens for the `guest` role, and the sidecar surfaces that as a 403 rather
   than working around it.
+- The token handed to the browser via the bootstrap redirect is never the long-lived
+  `Authorization`-header token. It is a separate, dedicated token the sidecar proactively
+  revokes from Music Assistant's own token database about two minutes after issuing it, so
+  a copy of that URL captured from browser history or a log line stops working almost
+  immediately rather than staying valid for a year.
 
 ## Known limitations
 
 - **The `?code=` bootstrap is a documented but internal Music Assistant frontend
-  behaviour, not a stable public API.** It was confirmed against the `music-assistant/frontend`
-  repository's `Login.vue` (`authManager.setToken(authCode)`) and the server's own
-  `build_code_redirect_url` helper (used by its HA-OAuth login callback) at the time this
-  add-on was built. A future Music Assistant frontend release could change or remove it.
-  If the panel starts showing Music Assistant's own login screen instead of logging you
-  in silently, this is the first thing to re-check upstream.
+  behaviour, not a stable public API.** It was confirmed three ways against the
+  `music-assistant/server` and `music-assistant/frontend` repositories at the time this
+  add-on was built: `Login.vue` reads `?code=` as a bearer token via
+  `authManager.setToken(authCode)` (explicitly distinguished in its own comments from the
+  unrelated 8-character party/QR `?join=` code); the server's `build_code_redirect_url`
+  helper's docstring calls its `token` parameter "the auth token to pass along as the
+  `code` query parameter"; and it was exercised end to end against a real
+  `ghcr.io/music-assistant/server:beta` container with a raw WebSocket client, which
+  authenticated successfully as the right user using exactly the token the bootstrap
+  redirect handed out (see `test/case9_check.py`). A future Music Assistant frontend
+  release could still change or remove this. If the panel starts showing Music
+  Assistant's own login screen instead of logging you in silently, this is the first
+  thing to re-check upstream - along with whether injecting `Authorization` directly on
+  the `/ws` upgrade has since started working (it does not today: confirmed live against
+  a real server that Music Assistant's websocket handler never reads that header).
+- **The bootstrap token still has a nominal one-year `exp` claim; only server-side
+  revocation makes its real usable lifetime about two minutes.** Music Assistant's
+  admin-mint API (`auth/token/create`) has no primitive for minting an actually
+  short-lived token for another user, so the sidecar mints the same kind of long-lived
+  token it always does and then revokes it from Music Assistant's database shortly after
+  (`BOOTSTRAP_TOKEN_LIFETIME_SECONDS` in `main.py`). This is a real revocation, not an
+  expiry claim only the server would enforce eventually - Music Assistant's token
+  validation requires the token's database row to still exist, so revoking it is
+  immediately fatal to that token regardless of what its JWT payload says. If the sidecar
+  is killed before the timer fires (or the revocation call itself fails, e.g. because
+  Music Assistant is briefly unreachable), that one token is only cleaned up the next
+  time the same Home Assistant user opens the panel, when it's revoked again before a
+  fresh one is minted - not before its nominal one-year expiry.
 - **A cached token does not immediately reflect a Music Assistant admin disabling that
-  user.** The sidecar caches minted tokens in memory (by design - re-minting on every
+  user.** The sidecar caches minted API tokens in memory (by design - re-minting on every
   request would defeat the point of a year-long token) and does not re-check the
   account's enabled state on every cache hit. Music Assistant itself independently
   rejects a disabled user's token for every real command it's used against, so this is a
