@@ -1,0 +1,43 @@
+{
+	auto_https off
+	admin off
+}
+
+http://:8099 {
+	route {
+		# Supervisor is the only legitimate source of ingress traffic for this add-on.
+		# Wrapped in an explicit route block: mixing a bare directive like this with
+		# handle blocks lets Caddy's automatic directive sorting reorder them, which
+		# silently defeats the check (verified against the live IP gate in ./test).
+		@not_supervisor {
+			not remote_ip 172.30.32.2
+		}
+		respond @not_supervisor 403
+
+		# The SPA entrypoint has no way to learn a session token on its own against an
+		# externally hosted server (see README: "Why this add-on exists"). Redirect a
+		# bare page load that isn't already carrying one to itself with a freshly
+		# minted token attached, which the Music Assistant frontend already knows how
+		# to consume.
+		@spa_entry {
+			path /
+			not query code=*
+		}
+		reverse_proxy @spa_entry 127.0.0.1:9000 {
+			rewrite /bootstrap
+		}
+
+		forward_auth 127.0.0.1:9000 {
+			uri /authorize
+			copy_headers Authorization
+		}
+
+		reverse_proxy {$MA_URL} {
+			header_up Host {upstream_hostport}
+			header_up -X-Remote-User-Id
+			header_up -X-Remote-User-Name
+			header_up -X-Remote-User-Display-Name
+			# MA_INSECURE_TRANSPORT_PLACEHOLDER
+		}
+	}
+}

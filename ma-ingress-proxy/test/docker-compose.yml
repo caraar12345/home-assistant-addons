@@ -1,0 +1,81 @@
+---
+# Local test harness standing in for Home Assistant Supervisor's ingress network.
+# See ../README.md#testing for how to use this.
+networks:
+  ma-test:
+    ipam:
+      config:
+        - subnet: 172.30.32.0/23
+
+services:
+  music-assistant:
+    image: ghcr.io/music-assistant/server:beta
+    networks:
+      ma-test:
+        ipv4_address: 172.30.33.10
+    volumes:
+      - ma-data:/data
+    ports:
+      - "18095:8095"
+
+  sidecar:
+    image: ma-ingress-proxy:test
+    entrypoint: ["/opt/venv/bin/python3", "/opt/sidecar/main.py"]
+    networks:
+      ma-test:
+        ipv4_address: 172.30.33.11
+    environment:
+      MA_URL: http://172.30.33.10:8095
+      MA_ADMIN_USERNAME: sidecar-admin
+      MA_ADMIN_PASSWORD: SidecarAdminPassw0rd!
+      MA_VERIFY_SSL: "true"
+      MA_DEFAULT_ROLE: user
+      MA_ADMIN_HA_USER_IDS: ""
+      LOG_LEVEL: debug
+      SIDECAR_DATA_DIR: /data
+      # Only needed because Caddy and the sidecar are separate containers in this test
+      # harness; in the shipped add-on they share one container and this stays 127.0.0.1.
+      SIDECAR_HOST: 0.0.0.0
+    volumes:
+      - sidecar-data:/data
+    depends_on:
+      - music-assistant
+
+  caddy:
+    image: caddy:2.9-alpine
+    networks:
+      ma-test:
+        ipv4_address: 172.30.33.12
+    ports:
+      - "18099:8099"
+    environment:
+      MA_URL: http://172.30.33.10:8095
+    volumes:
+      # Same Caddyfile as shipped, except the sidecar address: Caddy and the sidecar run
+      # in one container in the real add-on (127.0.0.1), but as separate containers here.
+      - ./Caddyfile.test:/etc/caddy/Caddyfile:ro
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+    depends_on:
+      - sidecar
+      - music-assistant
+
+  # A container pinned to Supervisor's real ingress address (172.30.32.2), to prove the
+  # Caddyfile's IP allowlist accepts genuine ingress traffic and rejects everything else.
+  supervisor-stand-in:
+    image: curlimages/curl:latest
+    networks:
+      ma-test:
+        ipv4_address: 172.30.32.2
+    entrypoint: ["sleep", "infinity"]
+
+  # An address Supervisor would never use, for the negative case.
+  attacker-stand-in:
+    image: curlimages/curl:latest
+    networks:
+      ma-test:
+        ipv4_address: 172.30.33.99
+    entrypoint: ["sleep", "infinity"]
+
+volumes:
+  ma-data:
+  sidecar-data:

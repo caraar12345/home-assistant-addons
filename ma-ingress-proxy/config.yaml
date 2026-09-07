@@ -1,0 +1,31 @@
+---
+name: Music Assistant Ingress Proxy
+version: 1.0.0
+slug: ma-ingress-proxy
+description: Put an externally hosted Music Assistant server in the Home Assistant sidebar with per-user authentication
+url: https://github.com/caraar12345/home-assistant-addons/blob/main/ma-ingress-proxy
+image: ghcr.io/caraar12345/ha-addon-ma-ingress-proxy
+arch:
+  - amd64
+  - aarch64
+init: false
+ingress: true
+ingress_port: 8099
+panel_icon: mdi:music-note
+options:
+  ma_url: ""
+  ma_admin_username: ""
+  ma_admin_password: ""
+  verify_ssl: true
+  default_role: user
+  admin_ha_user_ids: []
+  log_level: info
+schema:
+  ma_url: url
+  ma_admin_username: str
+  ma_admin_password: password
+  verify_ssl: bool?
+  default_role: list(user|admin)?
+  admin_ha_user_ids:
+    - str
+  log_level: list(trace|debug|info|notice|warning|error|fatal)?

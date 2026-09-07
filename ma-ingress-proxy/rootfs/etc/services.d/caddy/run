@@ -1,0 +1,12 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Music Assistant Ingress Proxy
+# Runs Caddy, which terminates Supervisor ingress traffic and proxies it to the
+# externally hosted Music Assistant server.
+# ==============================================================================
+export MA_URL
+MA_URL="$(bashio::config 'ma_url')"
+
+bashio::log.info "Starting Caddy, proxying to ${MA_URL}..."
+exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
