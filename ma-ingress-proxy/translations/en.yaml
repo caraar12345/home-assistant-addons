@@ -1,7 +1,7 @@
 configuration:
   ma_url:
     name: Music Assistant URL
-    description: Base URL of the externally hosted Music Assistant server, e.g. https://musicassistant.example.com
+    description: Base URL of the externally hosted Music Assistant server, e.g. https://musicassistant.example.com. Must be HTTPS.
   ma_admin_username:
     name: Admin username
     description: Username of a dedicated Music Assistant admin account used to provision users and mint tokens. Do not use a human's personal account.

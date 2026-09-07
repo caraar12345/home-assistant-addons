@@ -70,7 +70,9 @@ full reasoning.
    `users.manage` scope this add-on needs to provision users and mint their tokens).
 2. Install this add-on and set:
    - **Music Assistant URL**: the base URL of your externally hosted server, e.g.
-     `https://musicassistant.example.com`.
+     `https://musicassistant.example.com`. Must be HTTPS - Caddy forwards a bearer token
+     (and, on first run, the admin password) to this URL on every request, and an
+     `http://` upstream would send those in cleartext.
    - **Admin username** / **Admin password**: the account from step 1.
    - **Verify SSL**: leave enabled unless your server uses a self-signed certificate.
    - **Default role**: the Music Assistant role newly seen Home Assistant users get
@@ -108,7 +110,7 @@ user to get a *fresh* Music Assistant account rather than staying locked out.
 
 | Option | Type | Notes |
 |---|---|---|
-| `ma_url` | url | Base URL of the external Music Assistant server. |
+| `ma_url` | url | Base URL of the external Music Assistant server. HTTPS only. |
 | `ma_admin_username` | string | Dedicated admin account for this add-on. |
 | `ma_admin_password` | password | Password for that account. Never logged. |
 | `verify_ssl` | bool | Default `true`. Disable only for a trusted self-signed certificate. |

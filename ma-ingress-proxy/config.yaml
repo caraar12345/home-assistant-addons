@@ -21,7 +21,10 @@ options:
   admin_ha_user_ids: []
   log_level: info
 schema:
-  ma_url: url
+  # Must be HTTPS: Caddy forwards the sidecar-minted Authorization bearer token (and,
+  # during admin bootstrap, the admin password) to this URL on every request. Plain
+  # http:// would send those credentials in cleartext.
+  ma_url: match(^https://\S+$)
   ma_admin_username: str
   ma_admin_password: password
   verify_ssl: bool?
