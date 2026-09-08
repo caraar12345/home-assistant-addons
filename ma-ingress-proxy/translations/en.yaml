@@ -1,0 +1,25 @@
+configuration:
+  ma_url:
+    name: Music Assistant URL
+    description: Base URL of the externally hosted Music Assistant server, e.g. https://musicassistant.example.com. Must be HTTPS.
+  ma_admin_username:
+    name: Admin username
+    description: Username of a dedicated Music Assistant admin account used to provision users and mint tokens. Do not use a human's personal account.
+  ma_admin_password:
+    name: Admin password
+    description: Password for the admin account above.
+  verify_ssl:
+    name: Verify SSL
+    description: Verify the Music Assistant server's TLS certificate. Disable only for self-signed certificates you trust.
+  default_role:
+    name: Default role
+    description: Music Assistant role assigned to Home Assistant users the first time they open this panel.
+  admin_ha_user_ids:
+    name: Admin HA user IDs
+    description: Home Assistant user IDs that should be provisioned as Music Assistant admins instead of the default role.
+  log_level:
+    name: Log level
+    description: Log verbosity for both Caddy and the sidecar service.
+  age_identity:
+    name: Age identity
+    description: Optional age identity (private key, e.g. AGE-SECRET-KEY-1...) used to encrypt the admin token at rest. Leave blank to store it in plaintext. See README.md.

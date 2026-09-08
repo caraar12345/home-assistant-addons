@@ -1,3 +1,14 @@
 caddy
 .DS_Store
 promtail/testConfig/*
+
+# Claude Code's own local state (includes live git worktrees backing background
+# subagents) - never repository content.
+.claude/
+
+# The bare "caddy" pattern above matches any path component named "caddy" anywhere in
+# the tree, which also swallows this add-on's own caddy/ directories - un-ignore them.
+!/ma-ingress-proxy/rootfs/etc/caddy/
+!/ma-ingress-proxy/rootfs/etc/caddy/**
+!/ma-ingress-proxy/rootfs/etc/services.d/caddy/
+!/ma-ingress-proxy/rootfs/etc/services.d/caddy/**

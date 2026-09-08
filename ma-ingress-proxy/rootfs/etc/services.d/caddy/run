@@ -1,0 +1,25 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Home Assistant Add-on: Music Assistant Ingress Proxy
+# Runs Caddy, which terminates Supervisor ingress traffic and proxies it to the
+# externally hosted Music Assistant server.
+# ==============================================================================
+export MA_URL
+MA_URL="$(bashio::config 'ma_url')"
+
+# Log only scheme+host+port, never the full URL: the ma_url schema only guarantees an
+# https:// URL (see config.yaml), not that it is free of userinfo or query parameters a
+# user could still enter, and those must never end up in the add-on's log output.
+MA_URL_LOG="$(python3 -c "
+import sys
+from urllib.parse import urlsplit
+p = urlsplit(sys.argv[1])
+netloc = p.hostname or ''
+if p.port:
+    netloc += f':{p.port}'
+print(f'{p.scheme}://{netloc}')
+" "${MA_URL}")"
+
+bashio::log.info "Starting Caddy, proxying to ${MA_URL_LOG}..."
+exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
