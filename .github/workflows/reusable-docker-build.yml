@@ -1,0 +1,118 @@
+name: Reusable - Build and push addon image
+
+# Shared build/push pipeline for the simple (non home-assistant/builder)
+# addon images. Callers do their own addon-specific metadata extraction
+# (version, description, etc. from config.yaml/build.yaml) and pass the
+# resolved values in here, so this file only owns the mechanical part that
+# was previously copy-pasted across every docker-build-*.yml: checkout,
+# QEMU, Buildx, registry login, and build-push with a GitHub Actions cache.
+
+on:
+  workflow_call:
+    inputs:
+      context:
+        description: Docker build context, and checkout scope for submodule addons
+        required: true
+        type: string
+      registry:
+        description: Target registry, "ghcr" or "dockerhub"
+        required: true
+        type: string
+      image:
+        description: Full image reference without a tag, e.g. ghcr.io/owner/name
+        required: true
+        type: string
+      version:
+        description: Version string used as an image tag
+        required: true
+        type: string
+      platforms:
+        description: Comma-separated platform list
+        required: false
+        type: string
+        default: linux/amd64,linux/arm64
+      build-args:
+        description: Extra build-args, one KEY=VALUE per line
+        required: false
+        type: string
+        default: ""
+      submodules:
+        description: Passed through to actions/checkout's submodules option
+        required: false
+        type: string
+        default: "false"
+      fetch-depth:
+        description: Passed through to actions/checkout's fetch-depth option
+        required: false
+        type: number
+        default: 1
+      check-published:
+        description: Fail the build if image:version is already published
+        required: false
+        type: boolean
+        default: false
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: ${{ inputs.submodules }}
+          fetch-depth: ${{ inputs.fetch-depth }}
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        if: inputs.registry == 'ghcr'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Login to Docker Hub
+        if: inputs.registry == 'dockerhub'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # image:version is what Home Assistant checks to decide whether an
+      # update is available. If the addon's config version isn't bumped,
+      # this build would silently overwrite a previously published tag
+      # with different content and no HA user would ever see an update.
+      - name: Check version isn't already published
+        if: inputs.check-published
+        run: |
+          if docker buildx imagetools inspect "${{ inputs.image }}:${{ inputs.version }}" > /dev/null 2>&1; then
+            echo "::error::version ${{ inputs.version }} is already published as ${{ inputs.image }}:${{ inputs.version }}. Bump the addon's config version before merging."
+            exit 1
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ inputs.context }}
+          platforms: ${{ inputs.platforms }}
+          push: true
+          build-args: ${{ inputs.build-args }}
+          cache-from: type=gha,scope=${{ inputs.image }}
+          cache-to: type=gha,mode=max,scope=${{ inputs.image }}
+          tags: |
+            ${{ inputs.image }}:latest
+            ${{ inputs.image }}:${{ inputs.version }}
+            ${{ inputs.image }}:${{ github.sha }}
