@@ -1,0 +1,91 @@
+name: Docker build - Music Assistant Ingress Proxy
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ma-ingress-proxy/**
+  workflow_dispatch:
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Get version from config.yaml
+        id: get_version
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq '.version' ma-ingress-proxy/config.yaml
+
+      - name: Get name from config.yaml
+        id: get_name
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq '.name' ma-ingress-proxy/config.yaml
+
+      - name: Get description from config.yaml
+        id: get_description
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq '.description' ma-ingress-proxy/config.yaml
+
+      - name: Get amd64 base image from build.yaml
+        id: get_build_from
+        uses: mikefarah/yq@master
+        with:
+          cmd: yq '.build_from.amd64' ma-ingress-proxy/build.yaml
+
+      - name: Get current date
+        id: date
+        run: echo "date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # config.yaml's version is used as an image tag below and is what Home
+      # Assistant checks to decide whether an update is available. If it
+      # isn't bumped, this build would silently overwrite a previously
+      # published tag with different content and no HA user would ever see
+      # an update, so bump ma-ingress-proxy/config.yaml's version before
+      # merging any change to this addon.
+      - name: Check version isn't already published
+        run: |
+          if docker buildx imagetools inspect "ghcr.io/caraar12345/ha-addon-ma-ingress-proxy:${{ steps.get_version.outputs.result }}" > /dev/null 2>&1; then
+            echo "::error::version ${{ steps.get_version.outputs.result }} (from ma-ingress-proxy/config.yaml) is already published. Bump config.yaml's version before merging."
+            exit 1
+          fi
+
+      - name: Build and push
+        uses: docker/build-push-action@v4
+        with:
+          context: ./ma-ingress-proxy
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: |
+            BUILD_FROM=${{ steps.get_build_from.outputs.result }}
+            BUILD_DATE=${{ steps.date.outputs.date }}
+            BUILD_DESCRIPTION=${{ steps.get_description.outputs.result }}
+            BUILD_NAME=${{ steps.get_name.outputs.result }}
+            BUILD_REF=${{ github.sha }}
+            BUILD_REPOSITORY=${{ github.repository }}
+            BUILD_VERSION=${{ steps.get_version.outputs.result }}
+          tags: |
+            ghcr.io/caraar12345/ha-addon-ma-ingress-proxy:latest
+            ghcr.io/caraar12345/ha-addon-ma-ingress-proxy:${{ steps.get_version.outputs.result }}
+            ghcr.io/caraar12345/ha-addon-ma-ingress-proxy:${{ github.sha }}
