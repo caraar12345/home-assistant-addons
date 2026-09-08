@@ -584,7 +584,22 @@ class Sidecar:
         async with await self._admin_client() as client:
             revoked = 0
             for user in await client.auth.list_users():
-                for token in await client.auth.get_tokens(user.user_id):
+                user_tokens = await client.auth.get_tokens(user.user_id)
+                # Music Assistant's auth/tokens command caps at TOKEN_LIST_LIMIT (100,
+                # newest first) with no pagination exposed here - if a single user has
+                # accumulated more than that many matching tokens, the older ones are
+                # invisible to this call and can never be reached by it. Not expected in
+                # practice (each restart normally leaves at most one), but log it if it
+                # ever happens rather than silently under-delivering on "revoke every".
+                if len(user_tokens) >= 100:
+                    LOGGER.warning(
+                        "User %s has %d+ auth tokens; Music Assistant's API only returns "
+                        "the newest 100, so older ha-ingress tokens may not be revoked "
+                        "here",
+                        user.user_id,
+                        len(user_tokens),
+                    )
+                for token in user_tokens:
                     if token.name.startswith(TOKEN_NAME_PREFIX) or token.name.startswith(
                         BOOTSTRAP_TOKEN_NAME_PREFIX
                     ):
