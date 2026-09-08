@@ -54,14 +54,20 @@ Assistant server and confirmed to do nothing: the server never reads that header
 websocket handshake. A token has to reach the browser's own JavaScript one way or another,
 which is what the redirect is for.
 
-The token in that redirect is **not** the same long-lived token Caddy injects as the
-`Authorization` header on ordinary requests. A URL query parameter ends up in browser
-history and, potentially, logs, so handing out a credential that stays valid for a year
-there would be reckless. The sidecar instead mints a dedicated, single-purpose token for
-each bootstrap redirect and proactively revokes it from Music Assistant's own token
-database about two minutes later - long enough to survive a slow page load, short enough
-that a copy of the URL captured afterwards is worthless. See "Known limitations" for the
-full reasoning.
+The token in that redirect is the same long-lived token Caddy injects as the
+`Authorization` header on ordinary requests for that Home Assistant user - not a separate,
+short-lived one. An earlier version of this add-on minted a dedicated token for the
+redirect and proactively revoked it about two minutes later, on the assumption it was only
+ever needed for the instant of the WebSocket handshake. In practice, Music Assistant's
+frontend keeps using that same token for the life of the browser session (reconnects
+included), so revoking it out from under an open tab logged the user out after a couple of
+minutes - and with the same Home Assistant user open on two devices, each device's fresh
+page load revoked the *other* device's token immediately, logging it out on the spot.
+Reusing the ordinary cached token sidesteps both problems, at the cost of that token now
+carrying its full ~1 year lifetime if a copy of the URL is ever captured from browser
+history or a log line - the same exposure the `Authorization` header already has, and no
+worse than what a normal Music Assistant login already accepts (its own tokens are just as
+long-lived and stored client-side indefinitely too).
 
 The per-user tokens Caddy injects as `Authorization` are cached in the sidecar's memory
 only - never written to disk - and every add-on restart tries to revoke all of them from
@@ -191,11 +197,10 @@ token on disk to protect in the first place.
 - Guest accounts are excluded by design - Music Assistant itself refuses to mint
   long-lived tokens for the `guest` role, and the sidecar surfaces that as a 403 rather
   than working around it.
-- The token handed to the browser via the bootstrap redirect is never the long-lived
-  `Authorization`-header token. It is a separate, dedicated token the sidecar proactively
-  revokes from Music Assistant's own token database about two minutes after issuing it, so
-  a copy of that URL captured from browser history or a log line stops working almost
-  immediately rather than staying valid for a year.
+- The token handed to the browser via the bootstrap redirect is the same long-lived
+  `Authorization`-header token the sidecar caches for that Home Assistant user - see "How
+  it works" for why an earlier, separately-revoked bootstrap token turned out to log
+  devices out instead.
 
 ## Known limitations
 
@@ -215,19 +220,11 @@ token on disk to protect in the first place.
   thing to re-check upstream - along with whether injecting `Authorization` directly on
   the `/ws` upgrade has since started working (it does not today: confirmed live against
   a real server that Music Assistant's websocket handler never reads that header).
-- **The bootstrap token still has a nominal one-year `exp` claim; only server-side
-  revocation makes its real usable lifetime about two minutes.** Music Assistant's
-  admin-mint API (`auth/token/create`) has no primitive for minting an actually
-  short-lived token for another user, so the sidecar mints the same kind of long-lived
-  token it always does and then revokes it from Music Assistant's database shortly after
-  (`BOOTSTRAP_TOKEN_LIFETIME_SECONDS` in `main.py`). This is a real revocation, not an
-  expiry claim only the server would enforce eventually - Music Assistant's token
-  validation requires the token's database row to still exist, so revoking it is
-  immediately fatal to that token regardless of what its JWT payload says. If the sidecar
-  is killed before the timer fires (or the revocation call itself fails, e.g. because
-  Music Assistant is briefly unreachable), that one token is only cleaned up the next
-  time the same Home Assistant user opens the panel, when it's revoked again before a
-  fresh one is minted - not before its nominal one-year expiry.
+- **The bootstrap redirect's token carries its full nominal one-year lifetime, same as the
+  `Authorization`-header token it now reuses.** A copy of the URL captured from browser
+  history or a log line stays valid for as long as that Home Assistant user's cached
+  token does - see "How it works" for why this add-on no longer mints and
+  proactively revokes a separate, short-lived token for it.
 - **A cached token does not immediately reflect a Music Assistant admin disabling that
   user.** The sidecar caches minted API tokens in memory (by design - re-minting on every
   request would defeat the point of a year-long token) and does not re-check the

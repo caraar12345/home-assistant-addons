@@ -75,19 +75,14 @@ LISTEN_HOST = os.environ.get("SIDECAR_HOST", "127.0.0.1")
 AGE_IDENTITY = os.environ.get("AGE_IDENTITY", "").strip()
 ADMIN_TOKEN_NAME = "ha-ingress-proxy:admin"
 TOKEN_NAME_PREFIX = "ha-ingress:"
+# No longer minted (the bootstrap redirect now hands out the same cached ha-ingress:
+# token /authorize does - see create_app()'s /bootstrap route for why), kept only so
+# wipe_stale_tokens() still cleans up any leftover tokens an installation minted under
+# this name before that change.
 BOOTSTRAP_TOKEN_NAME_PREFIX = "ha-ingress-bootstrap:"
 # Refresh a cached/minted token this long before its real expiry, so it never gets
 # handed out and then rejected by Music Assistant moments later.
 EXPIRY_SAFETY_MARGIN_SECONDS = 300
-# Music Assistant's admin-mint API (auth/token/create) can only ever create long-lived
-# (365-day) tokens - there is no primitive for minting a short-lived one for another
-# user. A bootstrap token is handed to the browser in a URL query string, so its real
-# exposure window must not be "a year": this proactively revokes it from Music
-# Assistant's own token database shortly after issuing it, which kills it immediately
-# regardless of what its JWT `exp` claim still says. Generous enough to survive a slow
-# page load; short enough that a URL captured from logs or browser history afterwards
-# is worthless.
-BOOTSTRAP_TOKEN_LIFETIME_SECONDS = 120
 # Bounds the one-off startup token wipe (see Sidecar.wipe_stale_tokens): the HTTP server
 # does not start accepting connections - not even /healthz - until this completes, so an
 # unreachable (not just refused) Music Assistant server at boot must not be able to stall
@@ -167,7 +162,6 @@ class Sidecar:
         self._mapping_lock = asyncio.Lock()
         self._admin_token: str | None = None
         self._admin_token_lock = asyncio.Lock()
-        self._pending_revocations: set[asyncio.Task[None]] = set()
         self._age = AgeCrypto(AGE_IDENTITY)
         self._ssl_context: ssl.SSLContext | None = None
         if not VERIFY_SSL:
@@ -404,30 +398,6 @@ class Sidecar:
             self._cache[ha_user_id] = CachedToken(token=token, expires_at=expires_at)
             return token
 
-    async def mint_bootstrap_token(
-        self, ha_user_id: str, ha_username: str | None, ha_display_name: str | None
-    ) -> str:
-        """Mint a one-shot token for the SPA bootstrap redirect, never the cached API token.
-
-        Unlike resolve_token(), this never reuses or extends the long-lived token Caddy
-        injects as the Authorization header on ordinary requests - that one must keep
-        working for the life of the cache entry, so it cannot also be a token that gets
-        revoked minutes after being handed out in a URL. See BOOTSTRAP_TOKEN_LIFETIME_SECONDS.
-        """
-        async with self._lock_for(ha_user_id):
-            async with await self._admin_client() as client:
-                ma_user_id = await self._ensure_ma_user(
-                    client, ha_user_id, ha_username, ha_display_name
-                )
-                token, token_id = await self._revoke_and_mint(
-                    client,
-                    ma_user_id,
-                    f"{BOOTSTRAP_TOKEN_NAME_PREFIX}{ha_user_id}",
-                    ha_user_id,
-                )
-        self._schedule_bootstrap_revocation(token_id)
-        return token
-
     async def _ensure_ma_user(
         self,
         client: MusicAssistantClient,
@@ -450,21 +420,24 @@ class Sidecar:
 
     async def _revoke_and_mint(
         self, client: MusicAssistantClient, ma_user_id: str, token_name: str, ha_user_id: str
-    ) -> tuple[str, str]:
+    ) -> str:
         """Revoke any existing token with this exact name for the user, then mint a fresh one.
 
-        Token values are not recoverable from Music Assistant, so a sidecar restart cannot
-        reuse the last one, and every restart (or bootstrap redirect) would otherwise leave
-        another 365-day token behind if the old one weren't revoked first.
-
-        :return: The new token and its token_id (needed by callers that self-revoke it later).
+        Re-minted at most once per sidecar process lifetime per user (see resolve_token()'s
+        cache), not on every request, so revoking a stale token left behind by a previous
+        process is safe here and prevents another 365-day token being left behind on
+        every restart.
         """
-        try:
-            for existing in await client.auth.get_tokens(ma_user_id):
-                if existing.name == token_name:
-                    await client.auth.revoke_token(existing.token_id)
+        for existing in await client.auth.get_tokens(ma_user_id):
+            if existing.name == token_name:
+                await client.auth.revoke_token(existing.token_id)
+        return await self._mint_token(client, ma_user_id, token_name, ha_user_id)
 
-            token = await client.auth.create_token(token_name, user_id=ma_user_id)
+    async def _mint_token(
+        self, client: MusicAssistantClient, ma_user_id: str, token_name: str, ha_user_id: str
+    ) -> str:
+        try:
+            return await client.auth.create_token(token_name, user_id=ma_user_id)
         except InsufficientPermissions as err:
             # Guests cannot hold long-lived tokens by design - never silently
             # re-provision a fresh account to work around that.
@@ -487,30 +460,6 @@ class Sidecar:
             )
             raise AuthzError(403, str(err)) from err
 
-        for token_row in await client.auth.get_tokens(ma_user_id):
-            if token_row.name == token_name:
-                return token, token_row.token_id
-        # Unreachable in practice: create_token() just created this row.
-        raise AuthzError(502, "Minted token vanished before it could be tracked for revocation")
-
-    def _schedule_bootstrap_revocation(self, token_id: str) -> None:
-        task = asyncio.create_task(self._revoke_bootstrap_token_after_delay(token_id))
-        self._pending_revocations.add(task)
-        task.add_done_callback(self._pending_revocations.discard)
-
-    async def _revoke_bootstrap_token_after_delay(self, token_id: str) -> None:
-        await asyncio.sleep(BOOTSTRAP_TOKEN_LIFETIME_SECONDS)
-        try:
-            async with await self._admin_client() as client:
-                await client.auth.revoke_token(token_id)
-        except Exception:  # noqa: BLE001 - best-effort cleanup, never crash the sidecar over it
-            LOGGER.warning(
-                "Failed to self-revoke bootstrap token %s; it will still expire in a year "
-                "unless revoked another way",
-                token_id,
-                exc_info=True,
-            )
-
     async def _provision_and_mint(
         self, ha_user_id: str, ha_username: str | None, ha_display_name: str | None
     ) -> str:
@@ -518,10 +467,9 @@ class Sidecar:
             ma_user_id = await self._ensure_ma_user(
                 client, ha_user_id, ha_username, ha_display_name
             )
-            token, _token_id = await self._revoke_and_mint(
+            return await self._revoke_and_mint(
                 client, ma_user_id, f"{TOKEN_NAME_PREFIX}{ha_user_id}", ha_user_id
             )
-            return token
 
     async def _provision_user(
         self,
@@ -756,13 +704,25 @@ def create_app(sidecar: Sidecar) -> web.Application:
         socket (see README's "Known limitations"), so a token has to reach the browser's own
         JS one way or another.
 
-        Mints a short-lived-in-practice token via mint_bootstrap_token() rather than the
-        cached, long-lived one /authorize hands out - the latter must keep working for the
-        life of the cache entry and must never sit in a URL, browser history, or a log line.
+        Hands out the exact same cached, long-lived token /authorize injects as the
+        Authorization header - not a separate short-lived one. An earlier version of this
+        add-on minted a dedicated token here and proactively revoked it about two minutes
+        later, on the assumption it was only ever needed for the instant of the WS
+        handshake. In practice the Music Assistant frontend keeps using that same token
+        for the life of the browser session (WS reconnects included), so revoking it out
+        from under an open tab logged the user out - and with two devices open for the
+        same Home Assistant user, each fresh /bootstrap call revoked the other device's
+        token immediately by name. Reusing the ordinary cached token sidesteps both: nothing
+        issued here is ever revoked early, and every device sees the same durable token
+        Caddy already trusts. The tradeoff is this token can now end up in browser history
+        or an access log with its full ~1 year lifetime rather than ~2 minutes - the same
+        exposure the Authorization header already carries, and no worse than a normal
+        Music Assistant login already accepts (its own tokens are just as long-lived and
+        stored client-side indefinitely too).
         """
         try:
             ha_user_id, ha_username, ha_display_name = _extract_ha_headers(request)
-            token = await sidecar.mint_bootstrap_token(ha_user_id, ha_username, ha_display_name)
+            token = await sidecar.resolve_token(ha_user_id, ha_username, ha_display_name)
         except AuthzError as err:
             LOGGER.info("Denying bootstrap request: %s", err.reason)
             return web.Response(status=err.status, text=err.reason)
