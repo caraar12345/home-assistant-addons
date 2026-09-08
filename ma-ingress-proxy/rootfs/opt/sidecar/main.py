@@ -260,20 +260,46 @@ class Sidecar:
 
         Removes any plaintext copy left over from before encryption was turned on, so a
         secret is never readable from two places at once.
+
+        Never raises: a failure here (e.g. a malformed age_identity) must not undo work
+        already done against Music Assistant by the caller - _bootstrap_admin_token()
+        mints (and revokes the previous) admin token before calling this, and losing
+        that token because it merely couldn't be written to disk would force every
+        subsequent request to repeat the whole login+revoke+mint cycle with the admin
+        password. Worst case here is falling back to in-memory-only for this process's
+        lifetime, exactly as if age_identity had never been set.
         """
         DATA_DIR.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(data, indent=2, sort_keys=True).encode()
-        if self._age.enabled:
-            encrypted = await self._age.encrypt(payload)
-            tmp_path = encrypted_path.with_suffix(".tmp")
-            tmp_path.write_bytes(encrypted)
-            tmp_path.replace(encrypted_path)
-            if plain_path.exists():
-                plain_path.unlink()
-        else:
-            tmp_path = plain_path.with_suffix(".tmp")
-            tmp_path.write_bytes(payload)
-            tmp_path.replace(plain_path)
+        try:
+            if self._age.enabled:
+                encrypted = await self._age.encrypt(payload)
+                tmp_path = encrypted_path.with_suffix(".tmp")
+                tmp_path.write_bytes(encrypted)
+                tmp_path.replace(encrypted_path)
+                if plain_path.exists():
+                    plain_path.unlink()
+            else:
+                tmp_path = plain_path.with_suffix(".tmp")
+                tmp_path.write_bytes(payload)
+                tmp_path.replace(plain_path)
+                # Clean up a stale encrypted copy left over from age_identity being
+                # turned off - it can never be decrypted again without the identity
+                # that produced it, so leaving it in place is only ever misleading.
+                if encrypted_path.exists():
+                    LOGGER.info(
+                        "age_identity is not set; removing the now-unreadable "
+                        "encrypted copy at %s",
+                        encrypted_path,
+                    )
+                    encrypted_path.unlink()
+        except Exception:
+            LOGGER.warning(
+                "Failed to persist %s to disk; continuing with it held in memory only "
+                "for this run (check age_identity if this is unexpected)",
+                plain_path.name,
+                exc_info=True,
+            )
 
     async def _load_encrypted_json(
         self, plain_path: Path, encrypted_path: Path, description: str
