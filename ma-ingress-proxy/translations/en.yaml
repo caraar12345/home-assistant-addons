@@ -17,6 +17,9 @@ configuration:
   admin_ha_user_ids:
     name: Admin HA user IDs
     description: Home Assistant user IDs that should be provisioned as Music Assistant admins instead of the default role.
+  on_username_conflict:
+    name: On username conflict
+    description: What to do when a new Home Assistant user's derived Music Assistant username is already taken by an unrelated account. "create_new" (default) provisions a disambiguated account instead. "adopt" links the Home Assistant user to the existing Music Assistant account.
   log_level:
     name: Log level
     description: Log verbosity for both Caddy and the sidecar service.

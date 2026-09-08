@@ -10,6 +10,7 @@ export MA_ADMIN_PASSWORD
 export MA_VERIFY_SSL
 export MA_DEFAULT_ROLE
 export MA_ADMIN_HA_USER_IDS
+export MA_ON_USERNAME_CONFLICT
 export LOG_LEVEL
 export AGE_IDENTITY
 export SIDECAR_DATA_DIR=/data
@@ -20,6 +21,7 @@ MA_ADMIN_PASSWORD="$(bashio::config 'ma_admin_password')"
 MA_VERIFY_SSL="$(bashio::config 'verify_ssl')"
 MA_DEFAULT_ROLE="$(bashio::config 'default_role')"
 MA_ADMIN_HA_USER_IDS="$(bashio::config 'admin_ha_user_ids | join(",")')"
+MA_ON_USERNAME_CONFLICT="$(bashio::config 'on_username_conflict')"
 LOG_LEVEL="$(bashio::config 'log_level')"
 AGE_IDENTITY="$(bashio::config 'age_identity')"
 

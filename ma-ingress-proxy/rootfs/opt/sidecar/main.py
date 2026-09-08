@@ -38,6 +38,7 @@ from music_assistant_models.errors import (
     AuthenticationFailed,
     InsufficientPermissions,
     InvalidDataError,
+    MusicAssistantError,
 )
 
 LOGGER = logging.getLogger("ma_ingress_proxy.sidecar")
@@ -55,6 +56,14 @@ DEFAULT_ROLE = os.environ.get("MA_DEFAULT_ROLE", "user")
 ADMIN_HA_USER_IDS = {
     x for x in os.environ.get("MA_ADMIN_HA_USER_IDS", "").split(",") if x
 }
+# What to do when a Home Assistant user's derived username (see _derive_username) is
+# already taken by an unrelated, pre-existing Music Assistant account: "adopt" links the
+# HA user to that account outright; "create_new" (default) provisions a disambiguated
+# account instead, so an unrelated account can never be silently hijacked just because a
+# username happens to collide.
+ADOPT_EXISTING_USERNAME = "adopt"
+CREATE_NEW_USERNAME = "create_new"
+ON_USERNAME_CONFLICT = os.environ.get("MA_ON_USERNAME_CONFLICT", CREATE_NEW_USERNAME)
 LISTEN_PORT = int(os.environ.get("SIDECAR_PORT", "9000"))
 # Only Caddy, in the same container, needs to reach this service; it stays bound to
 # loopback in production so nothing else on the container's network can call it directly
@@ -523,13 +532,14 @@ class Sidecar:
     ) -> str:
         username = _derive_username(ha_user_id, ha_username)
         role = "admin" if ha_user_id in ADMIN_HA_USER_IDS else DEFAULT_ROLE
-        password = secrets.token_urlsafe(32)  # used once to satisfy the API, then discarded
-        user = await client.auth.create_user(
-            username=username,
-            password=password,
-            role=role,
-            display_name=ha_display_name,
-        )
+        try:
+            user = await self._create_ma_user(client, username, role, ha_display_name)
+        except MusicAssistantError as err:
+            if not _is_username_conflict(err):
+                raise
+            user = await self._resolve_username_conflict(
+                client, username, role, ha_user_id, ha_display_name
+            )
         LOGGER.info(
             "Provisioned Music Assistant user %s (role=%s) for HA user %s",
             user.user_id,
@@ -537,6 +547,71 @@ class Sidecar:
             ha_user_id,
         )
         return user.user_id
+
+    @staticmethod
+    async def _create_ma_user(
+        client: MusicAssistantClient, username: str, role: str, display_name: str | None
+    ):
+        password = secrets.token_urlsafe(32)  # used once to satisfy the API, then discarded
+        return await client.auth.create_user(
+            username=username,
+            password=password,
+            role=role,
+            display_name=display_name,
+        )
+
+    async def _resolve_username_conflict(
+        self,
+        client: MusicAssistantClient,
+        username: str,
+        role: str,
+        ha_user_id: str,
+        ha_display_name: str | None,
+    ):
+        """Handle Music Assistant already having a user named `username`.
+
+        `_derive_username` doesn't (and can't, without asking Music Assistant) know
+        whether its guess collides with an unrelated pre-existing account - e.g. a human
+        set one up by hand before this add-on ever ran, or the HA username matches
+        someone else's. Controlled by ON_USERNAME_CONFLICT: "adopt" links the HA user to
+        that existing account; "create_new" (default) provisions a fresh, disambiguated
+        one so a pre-existing account can never be silently hijacked.
+        """
+        existing = next(
+            (
+                u
+                for u in await client.auth.list_users()
+                if u.username.lower() == username.lower()
+            ),
+            None,
+        )
+        if existing is None:
+            # Some other UNIQUE constraint fired - nothing to adopt or disambiguate from.
+            raise
+
+        if ON_USERNAME_CONFLICT == ADOPT_EXISTING_USERNAME:
+            LOGGER.warning(
+                "Music Assistant already has a user named %r; adopting existing user %s "
+                "for HA user %s (on_username_conflict=adopt)",
+                username,
+                existing.user_id,
+                ha_user_id,
+            )
+            return existing
+
+        # create_new: the fallback string only needs to be deterministic and collision-free
+        # for *this* HA user, not short or memorable - the human-friendly username was
+        # already tried and lost the race to an unrelated account.
+        fallback_username = f"ha-{ha_user_id}".lower()
+        LOGGER.warning(
+            "Music Assistant already has a user named %r; provisioning %r instead for HA "
+            "user %s (set on_username_conflict=adopt to link to the existing account "
+            "instead)",
+            username,
+            fallback_username,
+            ha_user_id,
+        )
+        return await self._create_ma_user(client, fallback_username, role, ha_display_name)
 
     async def wipe_stale_tokens(self) -> None:
         """Revoke every ha-ingress/ha-ingress-bootstrap token, for every user, at startup.
@@ -615,6 +690,16 @@ def _derive_username(ha_user_id: str, ha_username: str | None) -> str:
         if len(candidate) >= 2:
             return candidate
     return f"ha-{ha_user_id[:8]}".lower()
+
+
+def _is_username_conflict(err: MusicAssistantError) -> bool:
+    """True if `err` is Music Assistant's raw SQLite UNIQUE-constraint failure on username.
+
+    The server has no dedicated error type for this - it's the base MusicAssistantError
+    with the driver's message text as its only distinguishing signal.
+    """
+    message = str(err)
+    return "UNIQUE constraint failed" in message and "username" in message
 
 
 def _decode_jwt_expiry(token: str) -> float | None:
