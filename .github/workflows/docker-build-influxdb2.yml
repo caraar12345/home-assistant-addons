@@ -8,11 +8,17 @@ on:
   workflow_dispatch:
 
 jobs:
-  docker:
+  meta:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.check_submodule.outputs.changed }}
+      version: ${{ steps.build_metadata.outputs.version }}
+      description: ${{ steps.build_metadata.outputs.description }}
+      name: ${{ steps.build_metadata.outputs.name }}
+      date: ${{ steps.date.outputs.date }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           submodules: recursive
           fetch-depth: 2
@@ -22,10 +28,10 @@ jobs:
         run: |
           if git diff --quiet HEAD^ HEAD -- influxdb2; then
             echo "No changes in influxdb2 submodule"
-            echo "changed=false" >> $GITHUB_OUTPUT
+            echo "changed=false" >> "$GITHUB_OUTPUT"
           else
             echo "Changes detected in influxdb2 submodule"
-            echo "changed=true" >> $GITHUB_OUTPUT
+            echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Get build metadata
@@ -38,38 +44,24 @@ jobs:
       - name: Get current date
         if: steps.check_submodule.outputs.changed == 'true'
         id: date
-        run: echo "TODAYS_DATE=$(date +'%Y-%m-%d')" >> $GITHUB_ENV
+        run: echo "date=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
 
-      - name: Set up QEMU
-        if: steps.check_submodule.outputs.changed == 'true'
-        uses: docker/setup-qemu-action@v2
-
-      - name: Set up Docker Buildx
-        if: steps.check_submodule.outputs.changed == 'true'
-        uses: docker/setup-buildx-action@v2
-
-      - name: Login to Docker Hub
-        if: steps.check_submodule.outputs.changed == 'true'
-        uses: docker/login-action@v2
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Build and push
-        if: steps.check_submodule.outputs.changed == 'true'
-        uses: docker/build-push-action@v4
-        with:
-          context: ${{ github.workspace }}/influxdb2/influxdb2
-          platforms: linux/amd64 #,linux/arm64,linux/arm/v7
-          push: true
-          build-args: |
-            BUILD_DATE="${{ env.TODAYS_DATE }}"
-            BUILD_DESCRIPTION="${{ steps.build_metadata.outputs['description'] }}"
-            BUILD_NAME="${{ steps.build_metadata.outputs['name'] }}"
-            BUILD_REF="${{ github.sha }}"
-            BUILD_REPOSITORY="${{ github.server_url }}/${{ github.repository }}"
-            BUILD_VERSION="${{ steps.build_metadata.outputs['version'] }}"
-          tags: |
-            aaroncarson/ha-addon-influxdb2:latest
-            aaroncarson/ha-addon-influxdb2:${{ steps.build_metadata.outputs['version'] }}
-            aaroncarson/ha-addon-influxdb2:${{ github.sha }}
+  build:
+    needs: meta
+    if: needs.meta.outputs.changed == 'true'
+    uses: ./.github/workflows/reusable-docker-build.yml
+    secrets: inherit
+    with:
+      context: ${{ github.workspace }}/influxdb2/influxdb2
+      registry: dockerhub
+      image: aaroncarson/ha-addon-influxdb2
+      version: ${{ needs.meta.outputs.version }}
+      platforms: linux/amd64
+      submodules: recursive
+      build-args: |
+        BUILD_DATE="${{ needs.meta.outputs.date }}"
+        BUILD_DESCRIPTION="${{ needs.meta.outputs.description }}"
+        BUILD_NAME="${{ needs.meta.outputs.name }}"
+        BUILD_REF="${{ github.sha }}"
+        BUILD_REPOSITORY="${{ github.server_url }}/${{ github.repository }}"
+        BUILD_VERSION="${{ needs.meta.outputs.version }}"
