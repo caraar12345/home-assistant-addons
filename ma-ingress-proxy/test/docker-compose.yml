@@ -31,6 +31,7 @@ services:
       MA_VERIFY_SSL: "true"
       MA_DEFAULT_ROLE: user
       MA_ADMIN_HA_USER_IDS: ""
+      MA_ON_USERNAME_CONFLICT: ${MA_ON_USERNAME_CONFLICT:-create_new}
       LOG_LEVEL: debug
       SIDECAR_DATA_DIR: /data
       # Only needed because Caddy and the sidecar are separate containers in this test

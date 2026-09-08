@@ -141,10 +141,51 @@ check "case wipe-on-boot: carol's old token revoked" "[]" "$carol_tokens"
 check "case wipe-on-boot: dave's old token revoked" "[]" "$dave_tokens"
 check "case wipe-on-boot: frank's bootstrap token revoked" "[]" "$frank_tokens_after"
 
+# Case: Music Assistant already has a user whose username collides with the one a new
+# HA user's username would derive to (e.g. someone set an account up by hand before this
+# add-on ever ran). Regression test for the UNIQUE constraint failure this add-on used to
+# let bubble straight up to the caller as a 502 instead of handling it.
+admin_token=$(docker exec test-sidecar-1 cat /data/admin_token.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+grace_preexisting_id=$(curl -s -X POST http://127.0.0.1:18095/api -H "Authorization: Bearer ${admin_token}" \
+	-d '{"message_id":"1","command":"auth/user/create","args":{"username":"grace","password":"PreexistingPassw0rd!","role":"user"}}' \
+	| python3 -c 'import json,sys;print(json.load(sys.stdin)["user_id"])')
+
+# Default on_username_conflict=create_new: provision a disambiguated account, not adopt
+# the pre-existing one.
+status=$($SUPERVISOR -o /dev/null -w '%{http_code}' "${BASE}/auth/me" \
+	-H 'X-Remote-User-Id: ha-user-grace' -H 'X-Remote-User-Name: grace')
+check "case username-conflict (create_new): colliding username still provisions -> 200" "200" "$status"
+mapping=$(docker exec test-sidecar-1 cat /data/mapping.json)
+grace_id=$(echo "$mapping" | python3 -c 'import json,sys;print(json.load(sys.stdin)["ha-user-grace"])')
+if [[ -n "$grace_id" && "$grace_id" != "$grace_preexisting_id" ]]; then
+	echo "PASS: case username-conflict (create_new): disambiguated, did not adopt the pre-existing account"
+	PASS=$((PASS + 1))
+else
+	echo "FAIL: case username-conflict (create_new): expected a new user id, got the pre-existing account $grace_preexisting_id"
+	FAIL=$((FAIL + 1))
+fi
+
+# on_username_conflict=adopt: link the HA user to the pre-existing account instead.
+henry_preexisting_id=$(curl -s -X POST http://127.0.0.1:18095/api -H "Authorization: Bearer ${admin_token}" \
+	-d '{"message_id":"1","command":"auth/user/create","args":{"username":"henry","password":"PreexistingPassw0rd!","role":"user"}}' \
+	| python3 -c 'import json,sys;print(json.load(sys.stdin)["user_id"])')
+MA_ON_USERNAME_CONFLICT=adopt docker compose up -d --force-recreate sidecar >/dev/null
+for _ in $(seq 1 30); do
+	docker run --rm --network test_ma-test curlimages/curl -sf -o /dev/null "http://sidecar:9000/healthz" && break
+	sleep 1
+done
+status=$($SUPERVISOR -o /dev/null -w '%{http_code}' "${BASE}/auth/me" \
+	-H 'X-Remote-User-Id: ha-user-henry' -H 'X-Remote-User-Name: henry')
+check "case username-conflict (adopt): colliding username still provisions -> 200" "200" "$status"
+mapping=$(docker exec test-sidecar-1 cat /data/mapping.json)
+henry_id=$(echo "$mapping" | python3 -c 'import json,sys;print(json.load(sys.stdin)["ha-user-henry"])')
+check "case username-conflict (adopt): adopted the pre-existing account" "$henry_preexisting_id" "$henry_id"
+
 # Case 9 (mechanism check): the bootstrap redirect's token authenticates a real
 # WebSocket session as the right user, the same mechanism the Music Assistant
 # frontend uses after reading its ?code= query parameter. Must run from Supervisor's
-# trusted address, which the long-lived stand-in container is already holding.
+# trusted address, which the long-lived stand-in container is already holding. Runs
+# last: it permanently stops the stand-in container to free up its trusted IP address.
 docker stop test-supervisor-stand-in-1 >/dev/null
 if docker run --rm --network test_ma-test --ip 172.30.32.2 \
 	-v "$(pwd)/case9_check.py:/check.py:ro" python:3.13-slim \

@@ -100,7 +100,10 @@ The first time a given Home Assistant user opens the panel, the sidecar:
    username, falling back to `ha-<first 8 chars of their user id>` if Home Assistant
    doesn't supply one), with a random password that is used once to satisfy Music
    Assistant's account-creation API and then discarded - nobody ever needs it, since
-   authentication only ever happens via the minted token.
+   authentication only ever happens via the minted token. If that username is already
+   taken by an unrelated Music Assistant account, `on_username_conflict` decides what
+   happens next: `create_new` (default) provisions a disambiguated account instead;
+   `adopt` links this Home Assistant user to the existing account.
 2. Mints a long-lived (1 year) Music Assistant access token for that account.
 3. Records the Home Assistant user ID -> Music Assistant user ID mapping in this add-on's
    `/data/mapping.json`, and caches the token in memory.
@@ -127,6 +130,7 @@ user to get a *fresh* Music Assistant account rather than staying locked out.
 | `verify_ssl` | bool | Default `true`. Disable only for a trusted self-signed certificate. |
 | `default_role` | `user` \| `admin` | Role for newly seen Home Assistant users. Default `user`. |
 | `admin_ha_user_ids` | list of strings | Home Assistant user IDs to provision as Music Assistant admins. |
+| `on_username_conflict` | `create_new` \| `adopt` | What to do when a new Home Assistant user's derived username is already taken by an unrelated Music Assistant account. Default `create_new` provisions a disambiguated account instead of touching the existing one; `adopt` links the Home Assistant user to it instead. |
 | `log_level` | list | Log verbosity for Caddy and the sidecar. Default `info`. |
 | `age_identity` | password | Optional. Encrypts the persisted admin token at rest. See "Age-Encrypted Admin Token" below. |
 
