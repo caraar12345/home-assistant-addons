@@ -79,6 +79,11 @@ EXPIRY_SAFETY_MARGIN_SECONDS = 300
 # page load; short enough that a URL captured from logs or browser history afterwards
 # is worthless.
 BOOTSTRAP_TOKEN_LIFETIME_SECONDS = 120
+# Bounds the one-off startup token wipe (see Sidecar.wipe_stale_tokens): the HTTP server
+# does not start accepting connections - not even /healthz - until this completes, so an
+# unreachable (not just refused) Music Assistant server at boot must not be able to stall
+# it for aiohttp's default multi-minute connection timeout.
+WIPE_STALE_TOKENS_TIMEOUT_SECONDS = 10
 
 
 class AuthzError(Exception):
@@ -545,26 +550,48 @@ class Sidecar:
         `ha-ingress-proxy:admin`) is untouched - it's infrastructure the sidecar needs to
         do this wipe in the first place, not a per-request artifact.
 
-        Best-effort: Music Assistant being briefly unreachable at startup must not crash
-        the sidecar. Anything left behind because of that is still bounded by the
-        existing revoke-before-mint step the next time that user opens the panel.
+        This runs from an aiohttp on_startup hook, before the HTTP server (including
+        /healthz) starts accepting connections at all - so it is bounded by a timeout,
+        not just wrapped in a bare except. Without one, an MA_URL that is merely
+        unreachable at the network layer (dropped SYN, VPN not up yet at HA boot) rather
+        than actively refused would stall the underlying aiohttp ClientSession's default
+        300s timeout, during which the sidecar would never open its listening port -
+        turning "Music Assistant is briefly unreachable" into "Supervisor's watchdog
+        never sees a healthy container." Best-effort either way: anything left behind
+        because of a timeout or any other failure here is still bounded by the existing
+        revoke-before-mint step the next time that user opens the panel.
         """
         try:
-            async with await self._admin_client() as client:
-                revoked = 0
-                for user in await client.auth.list_users():
-                    for token in await client.auth.get_tokens(user.user_id):
-                        if token.name.startswith(TOKEN_NAME_PREFIX) or token.name.startswith(
-                            BOOTSTRAP_TOKEN_NAME_PREFIX
-                        ):
-                            await client.auth.revoke_token(token.token_id)
-                            revoked += 1
-                if revoked:
-                    LOGGER.info(
-                        "Startup: revoked %d per-user token(s) from a previous run", revoked
-                    )
+            await asyncio.wait_for(
+                self._wipe_stale_tokens_now(), timeout=WIPE_STALE_TOKENS_TIMEOUT_SECONDS
+            )
+        except TimeoutError:
+            LOGGER.warning(
+                "Timed out after %ds wiping stale per-user tokens at startup (Music "
+                "Assistant may be unreachable); starting anyway",
+                WIPE_STALE_TOKENS_TIMEOUT_SECONDS,
+            )
         except Exception:  # noqa: BLE001 - never block startup over this
             LOGGER.warning("Failed to wipe stale per-user tokens at startup", exc_info=True)
+
+    async def _wipe_stale_tokens_now(self) -> None:
+        # Sequential by necessity, not oversight: MusicAssistantClient.send_command()
+        # reads its response directly off the shared websocket when not in
+        # start_listening() mode (which this short-lived admin connection never enters),
+        # so concurrent calls race on the same underlying receive() - verified live,
+        # asyncio.gather() over these calls raises "Concurrent call to receive() is not
+        # allowed" from aiohttp.
+        async with await self._admin_client() as client:
+            revoked = 0
+            for user in await client.auth.list_users():
+                for token in await client.auth.get_tokens(user.user_id):
+                    if token.name.startswith(TOKEN_NAME_PREFIX) or token.name.startswith(
+                        BOOTSTRAP_TOKEN_NAME_PREFIX
+                    ):
+                        await client.auth.revoke_token(token.token_id)
+                        revoked += 1
+            if revoked:
+                LOGGER.info("Startup: revoked %d per-user token(s) from a previous run", revoked)
 
 
 def _derive_username(ha_user_id: str, ha_username: str | None) -> str:

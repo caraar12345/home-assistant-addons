@@ -64,11 +64,15 @@ that a copy of the URL captured afterwards is worthless. See "Known limitations"
 full reasoning.
 
 The per-user tokens Caddy injects as `Authorization` are cached in the sidecar's memory
-only - never written to disk - and every add-on restart revokes all of them from Music
-Assistant outright before accepting any requests, rather than leaving them to sit unused
-until they'd naturally expire a year later (which could otherwise happen indefinitely for
-a Home Assistant user who's since lost access but never revisits the panel). The very
-next request from each Home Assistant user simply mints a fresh one, transparently.
+only - never written to disk - and every add-on restart tries to revoke all of them from
+Music Assistant outright, before accepting any requests, rather than leaving them to sit
+unused until they'd naturally expire a year later (which could otherwise happen
+indefinitely for a Home Assistant user who's since lost access but never revisits the
+panel). This is best effort and bounded by a short timeout - if Music Assistant happens to
+be unreachable at that exact moment, the sidecar still starts rather than blocking on it,
+and whatever wasn't revoked is still cleaned up the next time that Home Assistant user
+opens the panel (the existing revoke-before-mint step). The very next request from each
+Home Assistant user simply mints a fresh one, transparently.
 
 ## Setup
 
@@ -158,9 +162,9 @@ Leave `age_identity` blank to store the admin token in plaintext, as before.
 **Scope**: this only covers the admin token. The mapping file (`/data/mapping.json`) holds
 no secrets - just Home Assistant user ID to Music Assistant user ID correlations - and
 per-user API tokens are never written to disk at all. They live only in the sidecar's
-memory, and every restart revokes all of them from Music Assistant outright (see "How it
-works") rather than leaving them to expire naturally, so there's never a per-user token on
-disk to protect in the first place.
+memory, and every restart tries to revoke all of them from Music Assistant outright (see
+"How it works") rather than leaving them to expire naturally, so there's never a per-user
+token on disk to protect in the first place.
 
 ## Security model
 

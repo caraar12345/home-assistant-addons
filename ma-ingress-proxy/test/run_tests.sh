@@ -108,8 +108,21 @@ status=$($SUPERVISOR -o /dev/null -w '%{http_code}' "${BASE}/auth/me" \
 check "case 8: recovers without sidecar restart" "200" "$status"
 
 # Case: sidecar restart wipes every per-user token it previously minted (carol and dave
-# from case 1/10 above), while leaving the admin token itself alone (no re-bootstrap).
+# from case 1/10 above, plus a fresh bootstrap token below), while leaving the admin
+# token itself alone (no re-bootstrap).
 admin_token_before=$(docker exec test-sidecar-1 cat /data/admin_token.json | python3 -c 'import json,sys;print(json.load(sys.stdin)["token"])')
+
+# Mint a bootstrap token for a new user so the wipe check below also covers
+# ha-ingress-bootstrap: tokens specifically, not just the ha-ingress: ones above.
+$SUPERVISOR -D - -o /dev/null "${BASE}/" \
+	-H 'X-Remote-User-Id: ha-user-frank' -H 'X-Remote-User-Name: frank' >/dev/null
+mapping=$(docker exec test-sidecar-1 cat /data/mapping.json)
+frank_id=$(echo "$mapping" | python3 -c 'import json,sys;print(json.load(sys.stdin)["ha-user-frank"])')
+frank_tokens_before=$(curl -s -X POST http://127.0.0.1:18095/api -H "Authorization: Bearer ${admin_token_before}" \
+	-d '{"message_id":"1","command":"auth/tokens","args":{"user_id":"'"${frank_id}"'"}}' \
+	| python3 -c 'import json,sys;print([t["name"] for t in json.load(sys.stdin) if t["name"].startswith("ha-ingress-bootstrap:")])')
+check "case wipe-on-boot: bootstrap token exists before restart" "['ha-ingress-bootstrap:ha-user-frank']" "$frank_tokens_before"
+
 docker compose restart sidecar >/dev/null
 for _ in $(seq 1 30); do
 	docker run --rm --network test_ma-test curlimages/curl -sf -o /dev/null "http://sidecar:9000/healthz" && break
@@ -122,8 +135,11 @@ carol_tokens=$(curl -s -X POST http://127.0.0.1:18095/api -H "Authorization: Bea
 	-d '{"message_id":"1","command":"auth/tokens","args":{"user_id":"'"${carol_id}"'"}}')
 dave_tokens=$(curl -s -X POST http://127.0.0.1:18095/api -H "Authorization: Bearer ${admin_token_after}" \
 	-d '{"message_id":"1","command":"auth/tokens","args":{"user_id":"'"${dave_id}"'"}}')
+frank_tokens_after=$(curl -s -X POST http://127.0.0.1:18095/api -H "Authorization: Bearer ${admin_token_after}" \
+	-d '{"message_id":"1","command":"auth/tokens","args":{"user_id":"'"${frank_id}"'"}}')
 check "case wipe-on-boot: carol's old token revoked" "[]" "$carol_tokens"
 check "case wipe-on-boot: dave's old token revoked" "[]" "$dave_tokens"
+check "case wipe-on-boot: frank's bootstrap token revoked" "[]" "$frank_tokens_after"
 
 # Case 9 (mechanism check): the bootstrap redirect's token authenticates a real
 # WebSocket session as the right user, the same mechanism the Music Assistant
