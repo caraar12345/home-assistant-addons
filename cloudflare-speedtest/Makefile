@@ -8,15 +8,14 @@ _CLOUDFLARE_SPEED_CLI_VERSION ?= 1.0.8
 PLATFORMS ?= linux/arm64,linux/amd64
 LOCAL_PLATFORM ?= linux/amd64
 GITHUB_USERNAME ?= caraar12345
-GITHUB_REPO ?= home-assistant-addons
 ADDON_NAME ?= cloudflare-speedtest
 
 build:
 	docker buildx build --push \
 		--platform $(PLATFORMS) \
-		-t ghcr.io/${GITHUB_USERNAME}/${GITHUB_REPO}/${ADDON_NAME}:${_BUILD_ARGS_BUILD_REF} \
-		-t ghcr.io/${GITHUB_USERNAME}/${GITHUB_REPO}/${ADDON_NAME}:${_BUILD_ARGS_BUILD_VERSION} \
-		-t ghcr.io/${GITHUB_USERNAME}/${GITHUB_REPO}/${ADDON_NAME}:latest \
+		-t ghcr.io/${GITHUB_USERNAME}/ha-addon-${ADDON_NAME}:${_BUILD_ARGS_BUILD_REF} \
+		-t ghcr.io/${GITHUB_USERNAME}/ha-addon-${ADDON_NAME}:${_BUILD_ARGS_BUILD_VERSION} \
+		-t ghcr.io/${GITHUB_USERNAME}/ha-addon-${ADDON_NAME}:latest \
 		--build-arg BUILD_DATE=${_BUILD_ARGS_BUILD_DATE} \
 		--build-arg BUILD_REF=${_BUILD_ARGS_BUILD_REF} \
 		--build-arg BUILD_VERSION=${_BUILD_ARGS_BUILD_VERSION} \
@@ -25,7 +24,7 @@ build:
 build_local:
 	docker buildx build --load \
 		--platform $(LOCAL_PLATFORM) \
-		-t ghcr.io/${GITHUB_USERNAME}/${GITHUB_REPO}/${ADDON_NAME}:${_BUILD_ARGS_BUILD_REF} \
+		-t ghcr.io/${GITHUB_USERNAME}/ha-addon-${ADDON_NAME}:${_BUILD_ARGS_BUILD_REF} \
 		--build-arg BUILD_DATE=${_BUILD_ARGS_BUILD_DATE} \
 		--build-arg BUILD_REF=${_BUILD_ARGS_BUILD_REF} \
 		--build-arg BUILD_VERSION=${_BUILD_ARGS_BUILD_VERSION} \

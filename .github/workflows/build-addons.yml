@@ -6,7 +6,8 @@ name: Build add-ons
 #
 # Each add-on's config.yaml/config.yml is the source of truth: image, version,
 # name, description and arch all come from there, and BUILD_FROM from
-# build.yaml when present. Images go to GHCR for linux/amd64 and linux/arm64.
+# build.yaml when present. Images go to GHCR as ha-addon-<slug>, for
+# linux/amd64 and linux/arm64.
 #
 # - pull_request: builds each changed add-on without pushing, and writes the
 #   layer cache to <image>:buildcache, so the build after merge only has to
@@ -161,8 +162,11 @@ jobs:
           version=$(yq -r '.version' "$config")
           arch=$(yq -o=json -I=0 '.arch | sort' "$config")
 
-          if [[ "$image" != "ghcr.io/${OWNER}/"* ]] || [[ "$image" == *"{arch}"* ]]; then
-            echo "::error file=$config::image must be a single multi-arch image under ghcr.io/${OWNER}/, got '$image'"
+          # Every image is named after its add-on's slug (which can't change
+          # without Home Assistant treating it as a different add-on).
+          expected_image="ghcr.io/${OWNER}/ha-addon-$(yq -r '.slug' "$config")"
+          if [ "$image" != "$expected_image" ]; then
+            echo "::error file=$config::image must be $expected_image, got '$image'"
             exit 1
           fi
           if [ "$arch" != '["aarch64","amd64"]' ]; then

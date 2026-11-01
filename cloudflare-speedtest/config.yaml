@@ -6,7 +6,7 @@ arch:
   - amd64
   - aarch64
 startup: application
-image: "ghcr.io/caraar12345/home-assistant-addons/cloudflare-speedtest"
+image: ghcr.io/caraar12345/ha-addon-cloudflare-speedtest
 boot: auto
 apparmor: true
 services:
