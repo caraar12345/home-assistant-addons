@@ -64,7 +64,6 @@ profile alloy flags=(attach_disconnected,mediate_deleted) {
 
   # Programs
   /usr/bin/alloy                       cx -> alloy,
-  /usr/bin/yq                             Cx,
 
   profile alloy flags=(attach_disconnected,mediate_deleted) {
     include <abstractions/base>
@@ -78,8 +77,8 @@ profile alloy flags=(attach_disconnected,mediate_deleted) {
     network netlink raw,
     network unix dgram,
 
-    # Temp files
-    /tmp/.positions.yaml*                 rw,
+    # Temp files (Alloy writes positions atomically via /tmp/.positions.yml<random>)
+    /tmp/.positions.y{,a}ml*              rw,
 
     # Addon data
     /data/**                              r,
@@ -87,7 +86,6 @@ profile alloy flags=(attach_disconnected,mediate_deleted) {
     /data/promtail/**                     rwk,
 
     # Config & log data
-    @{do_etc}/alloy/config.yaml        r,
     @{do_etc}/alloy/config.alloy       r,
     @{do_etc}/alloy/*.alloy            r,
     /config/alloy/{,**}                r,
@@ -102,19 +100,5 @@ profile alloy flags=(attach_disconnected,mediate_deleted) {
     @{sys}/kernel/mm/transparent_hugepage/hpage_pmd_size r,
     /dev/null                             k,
     @{do_etc}/ssl/certs/**    r,
-  }
-
-  profile /usr/bin/yq flags=(attach_disconnected,mediate_deleted) {
-    include <abstractions/base>
-
-    # Config files
-    @{do_etc}/alloy/*                  rw,
-    /config/alloy/{,**}                r,
-    /share/**                             r,
-
-    # Runtime usage
-    /usr/bin/yq                           rm,
-    @{sys}/kernel/mm/transparent_hugepage/hpage_pmd_size r,
-    /dev/null                             k,
   }
 }

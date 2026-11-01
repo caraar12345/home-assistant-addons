@@ -38,8 +38,7 @@ alloy_args+=("--server.http.listen-addr=0.0.0.0:9080")
 # Set storage path to a writable directory (matches Dockerfile WORKDIR)
 alloy_args+=("--storage.path=/data/promtail")
 
-# Note: Alloy doesn't use --log.level flag, logging is controlled via config file
-# The LOG_LEVEL environment variable is used in the Alloy configuration
+# Log level is applied via the logging block in base_config.alloy, which reads LOG_LEVEL
 
 # Ensure config directory and files are accessible
 chmod -R 755 /etc/alloy
@@ -53,15 +52,6 @@ chmod 755 /data/promtail
 cp /etc/alloy/config.alloy "${ALLOY_CONFIG}"
 chmod 644 "${ALLOY_CONFIG}"
 
-# Debug: Check current user and file permissions
-bashio::log.info "Current user: $(whoami)"
-bashio::log.info "Current UID: $(id -u)"
-bashio::log.info "Config file permissions:"
-ls -la "${ALLOY_CONFIG}"
-bashio::log.info "Config directory permissions:"
-ls -la /etc/alloy/
-
-# Verify config file is readable
 if [[ ! -r "${ALLOY_CONFIG}" ]]; then
     bashio::log.error "Config file ${ALLOY_CONFIG} is not readable!"
     exit 1
@@ -69,4 +59,4 @@ fi
 
 bashio::log.info "Handing over control to Grafana Alloy..."
 cd /data/promtail
-/usr/bin/alloy "${alloy_args[@]}"
+exec /usr/bin/alloy "${alloy_args[@]}"

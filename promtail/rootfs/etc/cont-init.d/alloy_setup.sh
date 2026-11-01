@@ -9,6 +9,7 @@ readonly CONFIG_FILE="${CONFIG_DIR}/config.alloy"
 readonly BASE_CONFIG="${CONFIG_DIR}/base_config.alloy"
 readonly DEF_SCRAPE_CONFIGS="${CONFIG_DIR}/default-scrape-config.alloy"
 readonly CUSTOM_SCRAPE_CONFIGS="${CONFIG_DIR}/custom-scrape-config.alloy"
+readonly STAGES_MARKER='// ADDITIONAL_PIPELINE_STAGES'
 declare cafile
 declare add_stages
 declare add_scrape_configs
@@ -25,9 +26,9 @@ loki_write_config="loki.write \"default\" {
 if ! bashio::config.is_empty 'client.username'; then
     bashio::log.info 'Adding basic auth to client config...'
     bashio::config.require 'client.password' "'client.username' is specified"
-    
+
     loki_write_config="${loki_write_config}
-    
+
     basic_auth {
       username = \"$(bashio::config 'client.username')\"
       password = \"$(bashio::config 'client.password')\"
@@ -46,21 +47,21 @@ if ! bashio::config.is_empty 'client.cafile'; then
         bashio::log.fatal
         bashio::exit.nok
     fi
-    
+
     loki_write_config="${loki_write_config}
-    
+
     tls_config {
       ca_file = \"${cafile}\""
-    
+
     if ! bashio::config.is_empty 'client.servername'; then
         loki_write_config="${loki_write_config}
       server_name = \"$(bashio::config 'client.servername')\""
     fi
-    
+
     if ! bashio::config.is_empty 'client.certfile'; then
         bashio::log.info "Adding mTLS to client config..."
         bashio::config.require 'client.keyfile' "'client.certfile' is specified"
-        
+
         if ! bashio::fs.file_exists "$(bashio::config 'client.certfile')"; then
             bashio::log.fatal
             bashio::log.fatal "The file specified for 'certfile' does not exist!"
@@ -68,7 +69,7 @@ if ! bashio::config.is_empty 'client.cafile'; then
             bashio::log.fatal
             bashio::exit.nok
         fi
-        
+
         if ! bashio::fs.file_exists "$(bashio::config 'client.keyfile')"; then
             bashio::log.fatal
             bashio::log.fatal "The file specified for 'keyfile' does not exist!"
@@ -76,12 +77,12 @@ if ! bashio::config.is_empty 'client.cafile'; then
             bashio::log.fatal
             bashio::exit.nok
         fi
-        
+
         loki_write_config="${loki_write_config}
       cert_file = \"$(bashio::config 'client.certfile')\"
       key_file = \"$(bashio::config 'client.keyfile')\""
     fi
-    
+
     loki_write_config="${loki_write_config}
     }"
 fi
@@ -113,11 +114,11 @@ if bashio::config.true 'skip_default_scrape_config'; then
 else
     bashio::log.info "Adding default journald scrape config..."
     cat "${DEF_SCRAPE_CONFIGS}" >> "${CONFIG_FILE}"
-    
+
     if ! bashio::config.is_empty 'additional_pipeline_stages'; then
         bashio::log.info "Adding additional pipeline stages to default journal scrape config..."
         add_stages="$(bashio::config 'additional_pipeline_stages')"
-        
+
         if ! bashio::fs.file_exists "${add_stages}"; then
             bashio::log.fatal
             bashio::log.fatal "The file specified for 'additional_pipeline_stages' does not exist!"
@@ -125,10 +126,15 @@ else
             bashio::log.fatal
             bashio::exit.nok
         fi
-        
-        # Append additional pipeline stages to the config
-        bashio::log.info "Appending additional pipeline stages..."
-        cat "${add_stages}" >> "${CONFIG_FILE}"
+
+        # Insert the stages inside the loki.process "journal" block, at the
+        # marker, so they run after the default stages. (Previously the file was
+        # appended to the end of the config, outside any block, which isn't
+        # valid Alloy syntax for stage.* blocks.)
+        bashio::log.info "Inserting additional pipeline stages into loki.process \"journal\"..."
+        sed -i -e "\\|${STAGES_MARKER}|r ${add_stages}" -e "\\|${STAGES_MARKER}|d" "${CONFIG_FILE}"
+    else
+        sed -i -e "\\|${STAGES_MARKER}|d" "${CONFIG_FILE}"
     fi
 fi
 
@@ -136,7 +142,7 @@ fi
 if ! bashio::config.is_empty 'additional_scrape_configs'; then
     bashio::log.info "Adding custom scrape configs..."
     add_scrape_configs="$(bashio::config 'additional_scrape_configs')"
-    
+
     if ! bashio::fs.file_exists "${add_scrape_configs}"; then
         bashio::log.fatal
         bashio::log.fatal "The file specified for 'additional_scrape_configs' does not exist!"
@@ -144,7 +150,7 @@ if ! bashio::config.is_empty 'additional_scrape_configs'; then
         bashio::log.fatal
         bashio::exit.nok
     fi
-    
+
     cat "${add_scrape_configs}" >> "${CONFIG_FILE}"
 fi
 

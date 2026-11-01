@@ -1,10 +1,11 @@
 ARG BUILD_FROM
+# https://github.com/grafana/alloy/releases
+ARG ALLOY_VERSION=v1.21.3
+
+FROM grafana/alloy:${ALLOY_VERSION} AS alloy
+
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
-
-ARG TARGETARCH
-# https://github.com/mikefarah/yq/releases
-ARG YQ_VERSION=4.47.2
 
 RUN set -eux; \
     apt-get update \
@@ -16,25 +17,11 @@ RUN set -eux; \
         tar; \
     update-ca-certificates; \
     \
-    case "${TARGETARCH}" in \
-        amd64)  BINARCH='amd64' ;; \
-        arm)    BINARCH='arm' ;; \
-        arm64)  BINARCH='arm64' ;; \
-        *) echo >&2 "error: unsupported architecture (${TARGETARCH})"; exit 1 ;; \
-    esac; \
-    curl -s -J -L -o /tmp/yq.tar.gz \
-        "https://github.com/mikefarah/yq/releases/download/v${YQ_VERSION}/yq_linux_${BINARCH}.tar.gz"; \
-    tar -xf /tmp/yq.tar.gz -C /usr/bin; \
-    mv /usr/bin/yq_linux_${BINARCH} /usr/bin/yq; \
-    chmod a+x /usr/bin/yq; \
-    rm /tmp/yq.tar.gz; \
-    yq --version; \
-    \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*;
 
-# Add Alloy
-COPY --from=grafana/alloy:latest /usr/bin/alloy /usr/bin/alloy
+# Add Alloy (pinned via ALLOY_VERSION above)
+COPY --from=alloy /usr/bin/alloy /usr/bin/alloy
 RUN alloy --version
 
 COPY rootfs /

@@ -86,22 +86,25 @@ is using mTLS to authenticate clients. **Note**: This field is required if
 
 ### Option: `additional_pipeline_stages`
 
-The absolute path to a YAML file with a list of additional pipeline stages to
-apply to the [default journal scrape config][addon-default-config]. The primary
-use of this is to apply additional processing to logs from particular add-ons
-you use if they are noisy or difficult to read.
+The absolute path to a file of Alloy `stage.*` blocks to add to the
+[default journal scrape config][addon-default-config]. The primary use of this
+is to apply additional processing to logs from particular add-ons you use if
+they are noisy or difficult to read.
 
-This file must contain only a YAML list of pipeline stages. They will be added
-to the end of the ones already listed. If you don't like the ones listed, use
+The file must contain only `stage.*` blocks (Alloy syntax, not YAML). They are
+inserted inside the default `loki.process "journal"` block, after the stages
+already there. If you don't like the default stages, use
 `skip_default_scrape_config` and `additional_scrape_configs` to write your own
 instead. Here's an example of the contents of this file:
 
-```yaml
-- match:
-    selector: '{container_name="addon_cebe7a76_hassio_google_drive_backup"}'
-    stages:
-      - multiline:
-          firstline: '^\x{001b}'
+```alloy
+stage.match {
+  selector = `{container_name="app_cebe7a76_hassio_google_drive_backup"}`
+
+  stage.multiline {
+    firstline = `^\x{001b}`
+  }
+}
 ```
 
 This particular example applies to the [google drive backup addon][addon-google-drive-backup].
@@ -110,61 +113,74 @@ at the start of each log line for color-coding in terminals. Looking for that
 in a multiline stage makes it so tracebacks are included in the same log entry
 as the error that caused them for easier readability.
 
-See the [promtail documentation][promtail-doc-stages] for more information on how
-to configure pipeline stages.
+See the [`loki.process` documentation][alloy-doc-loki-process] for the stages
+available and how to configure them.
 
-**Note**: This addon has access to `/ssl`, `/share` and `/config/promtail`. Place
+**Note**: This addon has access to `/ssl`, `/share` and `/config/alloy`. Place
 the file in one of these locations, others will not work.
 
 ### Option: `skip_default_scrape_config`
 
-Promtail will scrape the `systemd journal` using a pre-defined config you can
+Alloy will read the `systemd journal` using a pre-defined config you can
 find [here][addon-default-config]. If you only want it to look at specific log
 files you specify or you don't like the default config and want to adjust it, set
-this to `true`. Then the only scrape configs used will be the ones you specify
+this to `true`. Then the only components used will be the ones you specify
 in the `additional_scrape_configs` file.
 
-**Note**: This addon has access to `/ssl`, `/share` and `/config/promtail`. Place
+**Note**: This addon has access to `/ssl`, `/share` and `/config/alloy`. Place
 the file in one of these locations, others will not work.
 
 ### Option: `additional_scrape_configs`
 
-The absolute path to a YAML file with a list of additional scrape configs for
-Promtail to use. The primary use of this is to point Promtail at additional log
-files created by add-ons which don't use `stdout` for all logging. You an also
-change the system journal is scraped by using this in conjunction with
-`skip_default_scrape_config`. **Note**: If `skip_default_scrape_config` is `true`
-then this field becomes required (otherwise there would be no scrape configs)
+The absolute path to a file of additional Alloy components (Alloy syntax, not
+YAML), appended to the generated config. The primary use of this is to point
+Alloy at additional log files created by add-ons which don't use `stdout` for
+all logging. You can also change how the system journal is read by using this
+in conjunction with `skip_default_scrape_config`. **Note**: If
+`skip_default_scrape_config` is `true` then this field becomes required
+(otherwise there would be nothing to collect).
 
-The file must contain only a YAML list of scrape configs. Here's an example of
-the contents of this file:
+Send logs to `loki.write.default.receiver`, which the add-on defines from the
+`client` options. Here's an example of the contents of this file:
 
-```yaml
-- job_name: zigbee2mqtt_messages
-  pipeline_stages:
-  static_configs:
-    - targets:
-        - localhost
-      labels:
-        job: zigbee2mqtt_messages
-        __path__: /share/zigbee2mqtt/log/**.txt
+```alloy
+local.file_match "zigbee2mqtt" {
+  path_targets = [{
+    __path__ = "/share/zigbee2mqtt/log/**/*.txt",
+    job      = "zigbee2mqtt_messages",
+  }]
+}
+
+loki.source.file "zigbee2mqtt" {
+  targets    = local.file_match.zigbee2mqtt.targets
+  forward_to = [loki.write.default.receiver]
+}
 ```
 
-This particular example would cause Promtail to scrape up the logs MQTT that the
+This particular example would cause Alloy to collect the MQTT logs that the
 [Zigbee2MQTT add-on][addon-z2m] makes by default.
 
-Promtail provides a lot of options for configuring scrape configs. See the
-documentation on [scrape_configs][promtail-doc-scrape-configs] for more info on
-the options available and how to configure them. The documentation also provides
-[other examples][promtail-doc-examples] you can use.
+See the [Alloy components reference][alloy-doc-components] for the options
+available.
 
 I would also recommend reading the [Loki best practices][loki-doc-best-practices]
-guide before making custom scrape configs. Pipelines are pretty powerful but
-avoid making too many labels, it does more harm then good. Instead look into
-what you can do with [LogQL][logql] can do at the other end.
+guide before making custom configs. Pipelines are pretty powerful but avoid
+making too many labels, it does more harm than good. Instead look into what you
+can do with [LogQL][logql] at the other end.
 
-**Note**: This addon has access to `/ssl`, `/share` and `/config/promtail`. Place
+**Note**: This addon has access to `/ssl`, `/share` and `/config/alloy`. Place
 the file in one of these locations, others will not work.
+
+## Labels added by the default journal config
+
+| Label | Source journal field |
+|---|---|
+| `job` | always `systemd-journal` |
+| `unit` | `_SYSTEMD_UNIT` |
+| `nodename` | `_HOSTNAME` |
+| `syslog_identifier` | `SYSLOG_IDENTIFIER` |
+| `container_name` | `CONTAINER_NAME` |
+| `boot_id` | `_BOOT_ID` (changes on every host reboot) |
 
 ### Port: `9080/tcp`
 
@@ -300,7 +316,9 @@ SOFTWARE.
 [add-addon-loki]: https://my.home-assistant.io/redirect/supervisor_addon/?addon=39bd2704_loki
 [add-repo-shield]: https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg
 [add-repo]: https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fmdegat01%2Fhassio-addons
-[addon-default-config]: https://github.com/mdegat01/addon-promtail/blob/main/promtail/rootfs/etc/promtail/default-scrape-config.yaml
+[addon-default-config]: https://github.com/caraar12345/home-assistant-addons/blob/main/promtail/rootfs/etc/alloy/default-scrape-config.alloy
+[alloy-doc-components]: https://grafana.com/docs/alloy/latest/reference/components/
+[alloy-doc-loki-process]: https://grafana.com/docs/alloy/latest/reference/components/loki/loki.process/
 [addon-grafana]: https://github.com/hassio-addons/addon-grafana
 [addon-google-drive-backup]: https://github.com/sabeechen/hassio-google-drive-backup
 [addon-loki-doc]: https://github.com/mdegat01/addon-loki/blob/main/loki/DOCS.md#grafana
