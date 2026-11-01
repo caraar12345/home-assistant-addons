@@ -25,8 +25,14 @@ COPY --from=alloy /usr/bin/alloy /usr/bin/alloy
 RUN alloy --version
 
 COPY rootfs /
+# The base's timezone init runs dpkg-reconfigure (/usr/sbin), which AppArmor
+# blocks (exit 126). Replace it via the unversioned s6-overlay symlink, and
+# fail the build if the base renames it so the override can't go stale again.
+ARG TZ_SCRIPT=/package/admin/s6-overlay/etc/s6-rc/scripts/base-app-timezone
+RUN test -f "${TZ_SCRIPT}"
+COPY base-app-timezone ${TZ_SCRIPT}
 # s6 needs these executable; don't rely on git file modes
-RUN chmod a+x /etc/cont-init.d/*.sh /etc/services.d/alloy/run
+RUN chmod a+x /etc/cont-init.d/*.sh /etc/services.d/alloy/run "${TZ_SCRIPT}"
 WORKDIR /data/promtail
 
 # Build arguments
