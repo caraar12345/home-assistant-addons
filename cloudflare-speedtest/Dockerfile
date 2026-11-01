@@ -2,7 +2,6 @@ ARG BUILD_FROM=ghcr.io/hassio-addons/base:stable
 FROM $BUILD_FROM
 
 ARG TARGETARCH
-ARG BUILD_ARCH=$TARGETARCH
 
 ARG CLOUDFLARE_SPEED_CLI_VERSION=1.0.8
 
@@ -10,10 +9,10 @@ COPY entrypoint.sh cloudflare-speedtest.sh /opt/
 
 RUN chmod +x /opt/cloudflare-speedtest.sh /opt/entrypoint.sh && \
     apk --no-cache add mosquitto-clients jq xz && \
-    echo "Target Arch: $BUILD_ARCH" && \
-    if [ "$BUILD_ARCH" = 'amd64' ]; then CF_TARGET='x86_64-unknown-linux-musl'; fi && \
-    if [ "$BUILD_ARCH" = 'arm64' ]; then CF_TARGET='aarch64-unknown-linux-musl'; fi && \
-    if [ -z "$CF_TARGET" ]; then echo >&2 "error: unsupported architecture ($BUILD_ARCH)"; exit 1; fi && \
+    echo "Target Arch: $TARGETARCH" && \
+    if [ "$TARGETARCH" = 'amd64' ]; then CF_TARGET='x86_64-unknown-linux-musl'; fi && \
+    if [ "$TARGETARCH" = 'arm64' ]; then CF_TARGET='aarch64-unknown-linux-musl'; fi && \
+    if [ -z "$CF_TARGET" ]; then echo >&2 "error: unsupported architecture ($TARGETARCH)"; exit 1; fi && \
     CF_FILE="cloudflare-speed-cli-${CF_TARGET}.tar.xz" && \
     CF_BASE_URL="https://github.com/kavehtehrani/cloudflare-speed-cli/releases/download/v${CLOUDFLARE_SPEED_CLI_VERSION}" && \
     wget "${CF_BASE_URL}/${CF_FILE}" -O /var/tmp/${CF_FILE} && \

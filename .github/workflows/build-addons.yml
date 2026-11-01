@@ -6,13 +6,16 @@ name: Build add-ons
 #
 # Each add-on's config.yaml/config.yml is the source of truth: image, version,
 # name, description and arch all come from there, and BUILD_FROM from
-# build.yaml when present. Images go to GHCR as ha-addon-<slug>, for
-# linux/amd64 and linux/arm64.
+# build.yaml when present. Images go to GHCR as ha-addon-<slug>.
+#
+# Each architecture builds natively on its own runner with its own BUILD_ARCH
+# (so the io.hass.arch label is right), then a publish job merges the two into
+# one multi-arch image.
 #
 # - pull_request: builds each changed add-on without pushing, and writes the
-#   layer cache to <image>:buildcache, so the build after merge only has to
-#   push the image.
-# - push to main: builds changed add-ons from that cache and pushes them.
+#   layer cache to <image>:buildcache-<arch>, so the build after merge only
+#   has to push the image.
+# - push to main: builds changed add-ons from that cache and publishes them.
 # - workflow_dispatch: builds a named add-on (or all) on demand.
 #
 # config.yaml's version is the image tag Home Assistant checks for updates, so
@@ -51,7 +54,9 @@ jobs:
   detect:
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.detect.outputs.matrix }}
+      addons: ${{ steps.detect.outputs.addons }}
+      builds: ${{ steps.detect.outputs.builds }}
+      push: ${{ steps.detect.outputs.push }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -66,6 +71,8 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           INPUT_ADDON: ${{ inputs.addon }}
           REPUBLISH: ${{ inputs.republish }}
+          OWNER: ${{ github.repository_owner }}
+          PUSH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
         run: |
           set -euo pipefail
 
@@ -91,7 +98,9 @@ jobs:
             workflow_changed=true
           fi
 
-          matrix='[]'
+          build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
+          addons='[]'
+          failed=false
           for addon in $ADDONS; do
             top=${addon%%/*}
             check=true
@@ -109,98 +118,102 @@ jobs:
             submodules=false
             if git ls-files -s -- "$top" | grep -q '^160000'; then
               submodules=true
+              git submodule update --init -- "$top"
             fi
 
-            matrix=$(jq -c --arg a "$addon" --argjson s "$submodules" --argjson c "$check" \
-              '. + [{addon: $a, submodules: $s, check: $c}]' <<<"$matrix")
+            config=$(find "$addon" -maxdepth 1 -name 'config.y*ml' | head -n1)
+            if [ -z "$config" ]; then
+              echo "::error::no config.yaml/config.yml in $addon"
+              failed=true
+              continue
+            fi
+
+            image=$(yq -r '.image' "$config")
+            version=$(yq -r '.version' "$config")
+            arch=$(yq -o=json -I=0 '.arch | sort' "$config")
+
+            # Every image is named after its add-on's slug (which can't change
+            # without Home Assistant treating it as a different add-on).
+            expected_image="ghcr.io/${OWNER}/ha-addon-$(yq -r '.slug' "$config")"
+            if [ "$image" != "$expected_image" ]; then
+              echo "::error file=$config::image must be $expected_image, got '$image'"
+              failed=true
+            fi
+            if [ "$arch" != '["aarch64","amd64"]' ]; then
+              echo "::error file=$config::arch must be exactly amd64 and aarch64 (what this workflow builds), got $arch"
+              failed=true
+            fi
+
+            # Both architectures share one config, so build.yaml must name the
+            # same multi-arch base image for each.
+            build_from=""
+            build_config=$(find "$addon" -maxdepth 1 -name 'build.y*ml' | head -n1)
+            if [ -n "$build_config" ]; then
+              build_from=$(yq -r '.build_from.amd64 // ""' "$build_config")
+              if [ "$build_from" != "$(yq -r '.build_from.aarch64 // ""' "$build_config")" ]; then
+                echo "::error file=$build_config::build_from.amd64 and build_from.aarch64 must be the same multi-arch image"
+                failed=true
+              fi
+            fi
+
+            build_args=$(
+              [ -z "$build_from" ] || echo "BUILD_FROM=$build_from"
+              echo "BUILD_DATE=$build_date"
+              echo "BUILD_DESCRIPTION=$(yq -r '.description' "$config")"
+              echo "BUILD_NAME=$(yq -r '.name' "$config")"
+              echo "BUILD_REF=$GITHUB_SHA"
+              echo "BUILD_REPOSITORY=$GITHUB_REPOSITORY"
+              echo "BUILD_VERSION=$version"
+            )
+
+            addons=$(jq -c \
+              --arg addon "$addon" --arg key "${addon//\//-}" \
+              --argjson submodules "$submodules" --argjson check "$check" \
+              --arg image "$image" --arg version "$version" --arg build_args "$build_args" \
+              '. + [{addon: $addon, key: $key, submodules: $submodules, check: $check,
+                     image: $image, version: $version, "build-args": $build_args}]' <<<"$addons")
           done
 
-          if [ "$EVENT" = workflow_dispatch ] && [ "$matrix" = '[]' ]; then
+          [ "$failed" = false ] || exit 1
+          if [ "$EVENT" = workflow_dispatch ] && [ "$addons" = '[]' ]; then
             echo "::error::'$INPUT_ADDON' isn't in ADDONS ($ADDONS)"
             exit 1
           fi
 
-          echo "Building: $matrix"
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          # Home Assistant's arch name, the matching platform, and a native
+          # runner for each.
+          builds=$(jq -c '[.[] | (. + {arch: "amd64", platform: "linux/amd64", runner: "ubuntu-latest"}),
+                                 (. + {arch: "aarch64", platform: "linux/arm64", runner: "ubuntu-24.04-arm"})]' <<<"$addons")
+
+          echo "Building: $(jq -c 'map(.addon)' <<<"$addons") (push: $PUSH)"
+          {
+            echo "addons=$addons"
+            echo "builds=$builds"
+            echo "push=$PUSH"
+          } >> "$GITHUB_OUTPUT"
 
   build:
-    name: Build ${{ matrix.addon }}
+    name: Build ${{ matrix.addon }} (${{ matrix.arch }})
     needs: detect
-    if: needs.detect.outputs.matrix != '[]'
-    runs-on: ubuntu-latest
+    if: needs.detect.outputs.builds != '[]'
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       packages: write
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.detect.outputs.matrix) }}
+        include: ${{ fromJSON(needs.detect.outputs.builds) }}
     concurrency:
-      group: build-${{ matrix.addon }}-${{ github.event.pull_request.number || github.ref }}
+      group: build-${{ matrix.addon }}-${{ matrix.arch }}-${{ github.event.pull_request.number || github.ref }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     env:
-      ADDON: ${{ matrix.addon }}
-      PUSH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+      PUSH: ${{ needs.detect.outputs.push }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: ${{ matrix.submodules }}
-
-      - name: Read add-on metadata
-        id: meta
-        env:
-          OWNER: ${{ github.repository_owner }}
-        run: |
-          set -euo pipefail
-
-          config=$(find "$ADDON" -maxdepth 1 -name 'config.y*ml' | head -n1)
-          [ -n "$config" ] || { echo "::error::no config.yaml/config.yml in $ADDON"; exit 1; }
-
-          image=$(yq -r '.image' "$config")
-          version=$(yq -r '.version' "$config")
-          arch=$(yq -o=json -I=0 '.arch | sort' "$config")
-
-          # Every image is named after its add-on's slug (which can't change
-          # without Home Assistant treating it as a different add-on).
-          expected_image="ghcr.io/${OWNER}/ha-addon-$(yq -r '.slug' "$config")"
-          if [ "$image" != "$expected_image" ]; then
-            echo "::error file=$config::image must be $expected_image, got '$image'"
-            exit 1
-          fi
-          if [ "$arch" != '["aarch64","amd64"]' ]; then
-            echo "::error file=$config::arch must be exactly amd64 and aarch64 (what this workflow builds), got $arch"
-            exit 1
-          fi
-
-          # One multi-platform build means one base image, so build.yaml must
-          # name the same multi-arch image for both architectures.
-          build_from=""
-          build_config=$(find "$ADDON" -maxdepth 1 -name 'build.y*ml' | head -n1)
-          if [ -n "$build_config" ]; then
-            build_from=$(yq -r '.build_from.amd64 // ""' "$build_config")
-            if [ "$build_from" != "$(yq -r '.build_from.aarch64 // ""' "$build_config")" ]; then
-              echo "::error file=$build_config::build_from.amd64 and build_from.aarch64 must be the same multi-arch image"
-              exit 1
-            fi
-          fi
-
-          {
-            echo "image=$image"
-            echo "version=$version"
-            echo "build-args<<EOF"
-            [ -z "$build_from" ] || echo "BUILD_FROM=$build_from"
-            echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
-            echo "BUILD_DESCRIPTION=$(yq -r '.description' "$config")"
-            echo "BUILD_NAME=$(yq -r '.name' "$config")"
-            echo "BUILD_REF=$GITHUB_SHA"
-            echo "BUILD_REPOSITORY=$GITHUB_REPOSITORY"
-            echo "BUILD_VERSION=$version"
-            echo "EOF"
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
@@ -215,11 +228,11 @@ jobs:
       - name: Check version isn't already published
         if: matrix.check
         env:
-          IMAGE: ${{ steps.meta.outputs.image }}
-          VERSION: ${{ steps.meta.outputs.version }}
+          IMAGE: ${{ matrix.image }}
+          VERSION: ${{ matrix.version }}
         run: |
           if docker buildx imagetools inspect "$IMAGE:$VERSION" > /dev/null 2>&1; then
-            echo "::error::$IMAGE:$VERSION is already published. Bump $ADDON's config version."
+            echo "::error::$IMAGE:$VERSION is already published. Bump ${{ matrix.addon }}'s config version."
             exit 1
           fi
 
@@ -228,18 +241,85 @@ jobs:
       # PRs write it too (main can't read a PR's GitHub Actions cache, but it
       # can read this). ignore-error keeps a read-only token (Dependabot,
       # forks) from failing the build when it can't write the cache.
+      # On main, the image is pushed by digest only; the publish job tags it.
       - name: Build${{ env.PUSH == 'true' && ' and push' || '' }}
+        id: build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: ${{ matrix.addon }}
-          platforms: linux/amd64,linux/arm64
-          push: ${{ env.PUSH == 'true' }}
-          # Without pushing, the cache is the only output a build needs.
-          outputs: ${{ env.PUSH != 'true' && 'type=cacheonly' || '' }}
-          build-args: ${{ steps.meta.outputs.build-args }}
-          cache-from: type=registry,ref=${{ steps.meta.outputs.image }}:buildcache
-          cache-to: type=registry,ref=${{ steps.meta.outputs.image }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
-          tags: |
-            ${{ steps.meta.outputs.image }}:latest
-            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
-            ${{ steps.meta.outputs.image }}:${{ github.sha }}
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            ${{ matrix.build-args }}
+            BUILD_ARCH=${{ matrix.arch }}
+          outputs: ${{ env.PUSH == 'true' && format('type=image,name={0},push-by-digest=true,name-canonical=true,push=true', matrix.image) || 'type=cacheonly' }}
+          cache-from: type=registry,ref=${{ matrix.image }}:buildcache-${{ matrix.arch }}
+          cache-to: type=registry,ref=${{ matrix.image }}:buildcache-${{ matrix.arch }},mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
+
+      - name: Export digest
+        if: env.PUSH == 'true'
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/digests"
+          touch "$RUNNER_TEMP/digests/${DIGEST#sha256:}"
+
+      - name: Upload digest
+        if: env.PUSH == 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: digests-${{ matrix.key }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Publish ${{ matrix.addon }}
+    needs: [detect, build]
+    # Runs per add-on even if another add-on's build failed; an add-on whose
+    # own build failed has a digest missing and stops below.
+    if: ${{ !cancelled() && needs.detect.outputs.push == 'true' && needs.detect.outputs.addons != '[]' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.detect.outputs.addons) }}
+    concurrency:
+      group: publish-${{ matrix.addon }}-${{ github.ref }}
+    steps:
+      - name: Download digests
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: digests-${{ matrix.key }}-*
+          path: ${{ runner.temp }}/digests
+          merge-multiple: true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create and push the multi-arch image
+        working-directory: ${{ runner.temp }}/digests
+        env:
+          IMAGE: ${{ matrix.image }}
+          VERSION: ${{ matrix.version }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          digests=(*)
+          if [ "${#digests[@]}" -ne 2 ]; then
+            echo "::error::expected an amd64 and an aarch64 digest for ${{ matrix.addon }}, got ${#digests[@]}; not publishing"
+            exit 1
+          fi
+          docker buildx imagetools create \
+            -t "$IMAGE:latest" -t "$IMAGE:$VERSION" -t "$IMAGE:$GITHUB_SHA" \
+            $(printf "$IMAGE@sha256:%s " "${digests[@]}")
+          docker buildx imagetools inspect "$IMAGE:$VERSION"
