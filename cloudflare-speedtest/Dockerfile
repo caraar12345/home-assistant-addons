@@ -4,9 +4,6 @@ FROM $BUILD_FROM
 ARG TARGETARCH
 ARG BUILD_ARCH=$TARGETARCH
 
-ARG BUILD_TIME
-ARG BUILD_REVISION
-ARG BUILD_VERSION
 ARG CLOUDFLARE_SPEED_CLI_VERSION=1.0.8
 
 COPY entrypoint.sh cloudflare-speedtest.sh /opt/
@@ -32,11 +29,17 @@ RUN chmod +x /opt/cloudflare-speedtest.sh /opt/entrypoint.sh && \
 
 ENTRYPOINT /opt/entrypoint.sh
 
-LABEL org.opencontainers.artifact.created $BUILD_TIME
-LABEL org.opencontainers.image.created $BUILD_TIME
-LABEL org.opencontainers.image.source https://github.com/caraar12345/home-assistant-addons
-LABEL org.opencontainers.image.authors "Aaron Carson <aaron@aaroncarson.co.uk>"
-LABEL org.opencontainers.image.version $BUILD_VERSION
-LABEL org.opencontainers.image.licenses "MIT"
-LABEL org.opencontainers.image.revision $BUILD_REVISION
-LABEL org.opencontainers.artifact.description "Cloudflare Speed CLI as a Home Assistant Add-on with the output being published to MQTT."
+# Label-only build arguments go last: every RUN after an ARG sees it, so a
+# per-commit value declared earlier would invalidate the layer cache.
+ARG BUILD_DATE
+ARG BUILD_REF
+ARG BUILD_VERSION
+
+LABEL \
+    org.opencontainers.image.created="${BUILD_DATE}" \
+    org.opencontainers.image.source="https://github.com/caraar12345/home-assistant-addons" \
+    org.opencontainers.image.authors="Aaron Carson <aaron@aaroncarson.co.uk>" \
+    org.opencontainers.image.version="${BUILD_VERSION}" \
+    org.opencontainers.image.licenses="MIT" \
+    org.opencontainers.image.revision="${BUILD_REF}" \
+    org.opencontainers.image.description="Cloudflare Speed CLI as a Home Assistant Add-on with the output being published to MQTT."

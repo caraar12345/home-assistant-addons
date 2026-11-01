@@ -8,8 +8,6 @@
 [submodule "ha-addon-influxdb2"]
 	path = influxdb2
 	url = https://github.com/caraar12345/ha-addon-influxdb2
-[submodule "influxdb2"]
-	url = https://github.com/caraar12345/ha-addon-influxdb2
 [submodule "tvheadend"]
 	path = tvheadend
 	url = https://github.com/caraar12345/hassio-tvheadend

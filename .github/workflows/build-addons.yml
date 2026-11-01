@@ -1,0 +1,240 @@
+name: Build add-ons
+
+# One pipeline for every add-on image built in this repository (Grafana uses
+# home-assistant/builder and has its own workflow; the caddy add-ons build in
+# their own repositories).
+#
+# Each add-on's config.yaml/config.yml is the source of truth: image, version,
+# name, description and arch all come from there, and BUILD_FROM from
+# build.yaml when present. Images go to GHCR for linux/amd64 and linux/arm64.
+#
+# - pull_request: builds each changed add-on without pushing, and writes the
+#   layer cache to <image>:buildcache, so the build after merge only has to
+#   push the image.
+# - push to main: builds changed add-ons from that cache and pushes them.
+# - workflow_dispatch: builds a named add-on (or all) on demand.
+#
+# config.yaml's version is the image tag Home Assistant checks for updates, so
+# a build that would overwrite an already-published version fails (on the PR,
+# before merge). Bump the add-on's version with any change to it.
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      addon:
+        description: Add-on to build, as listed in ADDONS (e.g. promtail), or "all"
+        required: true
+      republish:
+        description: Allow overwriting an already-published version
+        type: boolean
+        default: false
+
+env:
+  # The directory holding each built add-on's config file. One inside a
+  # submodule (influxdb2/influxdb2) is rebuilt when the submodule pointer moves.
+  ADDONS: >-
+    promtail
+    cadvisor
+    cloudflare-speedtest
+    influxdb2/influxdb2
+    ma-ingress-proxy
+    scanservjs
+
+permissions:
+  contents: read
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Work out which add-ons to build
+        id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          INPUT_ADDON: ${{ inputs.addon }}
+          REPUBLISH: ${{ inputs.republish }}
+        run: |
+          set -euo pipefail
+
+          # Files changed by this event. A PR's checkout is its merge commit,
+          # so diffing against the base gives exactly the PR's changes. A push
+          # can carry several commits, so diff against the pre-push tip.
+          case "$EVENT" in
+            pull_request)
+              changed=$(git diff --name-only "$BASE_SHA" HEAD) ;;
+            push)
+              if [[ "$BEFORE" =~ ^0+$ ]] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+                BEFORE=HEAD^
+              fi
+              changed=$(git diff --name-only "$BEFORE" HEAD) ;;
+            *)
+              changed="" ;;
+          esac
+
+          # On a PR, a change to this workflow rebuilds everything (without
+          # the version check) to prove the pipeline still works.
+          workflow_changed=false
+          if [ "$EVENT" = pull_request ] && grep -qx '.github/workflows/build-addons.yml' <<<"$changed"; then
+            workflow_changed=true
+          fi
+
+          matrix='[]'
+          for addon in $ADDONS; do
+            top=${addon%%/*}
+            check=true
+            if [ "$EVENT" = workflow_dispatch ]; then
+              [ "$INPUT_ADDON" = all ] || [ "$INPUT_ADDON" = "$addon" ] || continue
+              [ "$REPUBLISH" != true ] || check=false
+            elif grep -qE "^${top}(/|$)" <<<"$changed"; then
+              :
+            elif [ "$workflow_changed" = true ]; then
+              check=false
+            else
+              continue
+            fi
+
+            submodules=false
+            if git ls-files -s -- "$top" | grep -q '^160000'; then
+              submodules=true
+            fi
+
+            matrix=$(jq -c --arg a "$addon" --argjson s "$submodules" --argjson c "$check" \
+              '. + [{addon: $a, submodules: $s, check: $c}]' <<<"$matrix")
+          done
+
+          if [ "$EVENT" = workflow_dispatch ] && [ "$matrix" = '[]' ]; then
+            echo "::error::'$INPUT_ADDON' isn't in ADDONS ($ADDONS)"
+            exit 1
+          fi
+
+          echo "Building: $matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: Build ${{ matrix.addon }}
+    needs: detect
+    if: needs.detect.outputs.matrix != '[]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.detect.outputs.matrix) }}
+    concurrency:
+      group: build-${{ matrix.addon }}-${{ github.event.pull_request.number || github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+    env:
+      ADDON: ${{ matrix.addon }}
+      PUSH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: ${{ matrix.submodules }}
+
+      - name: Read add-on metadata
+        id: meta
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          config=$(find "$ADDON" -maxdepth 1 -name 'config.y*ml' | head -n1)
+          [ -n "$config" ] || { echo "::error::no config.yaml/config.yml in $ADDON"; exit 1; }
+
+          image=$(yq -r '.image' "$config")
+          version=$(yq -r '.version' "$config")
+          arch=$(yq -o=json -I=0 '.arch | sort' "$config")
+
+          if [[ "$image" != "ghcr.io/${OWNER}/"* ]] || [[ "$image" == *"{arch}"* ]]; then
+            echo "::error file=$config::image must be a single multi-arch image under ghcr.io/${OWNER}/, got '$image'"
+            exit 1
+          fi
+          if [ "$arch" != '["aarch64","amd64"]' ]; then
+            echo "::error file=$config::arch must be exactly amd64 and aarch64 (what this workflow builds), got $arch"
+            exit 1
+          fi
+
+          # One multi-platform build means one base image, so build.yaml must
+          # name the same multi-arch image for both architectures.
+          build_from=""
+          build_config=$(find "$ADDON" -maxdepth 1 -name 'build.y*ml' | head -n1)
+          if [ -n "$build_config" ]; then
+            build_from=$(yq -r '.build_from.amd64 // ""' "$build_config")
+            if [ "$build_from" != "$(yq -r '.build_from.aarch64 // ""' "$build_config")" ]; then
+              echo "::error file=$build_config::build_from.amd64 and build_from.aarch64 must be the same multi-arch image"
+              exit 1
+            fi
+          fi
+
+          {
+            echo "image=$image"
+            echo "version=$version"
+            echo "build-args<<EOF"
+            [ -z "$build_from" ] || echo "BUILD_FROM=$build_from"
+            echo "BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo "BUILD_DESCRIPTION=$(yq -r '.description' "$config")"
+            echo "BUILD_NAME=$(yq -r '.name' "$config")"
+            echo "BUILD_REF=$GITHUB_SHA"
+            echo "BUILD_REPOSITORY=$GITHUB_REPOSITORY"
+            echo "BUILD_VERSION=$version"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check version isn't already published
+        if: matrix.check
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          VERSION: ${{ steps.meta.outputs.version }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$VERSION" > /dev/null 2>&1; then
+            echo "::error::$IMAGE:$VERSION is already published. Bump $ADDON's config version."
+            exit 1
+          fi
+
+      # The cache lives in the image's own GHCR package, so on merge the
+      # layers are already in the registry and pushing is just the manifest.
+      # PRs write it too (main can't read a PR's GitHub Actions cache, but it
+      # can read this). ignore-error keeps a read-only token (Dependabot,
+      # forks) from failing the build when it can't write the cache.
+      - name: Build${{ env.PUSH == 'true' && ' and push' || '' }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: ${{ matrix.addon }}
+          platforms: linux/amd64,linux/arm64
+          push: ${{ env.PUSH == 'true' }}
+          build-args: ${{ steps.meta.outputs.build-args }}
+          cache-from: type=registry,ref=${{ steps.meta.outputs.image }}:buildcache
+          cache-to: type=registry,ref=${{ steps.meta.outputs.image }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
+          tags: |
+            ${{ steps.meta.outputs.image }}:latest
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.version }}
+            ${{ steps.meta.outputs.image }}:${{ github.sha }}

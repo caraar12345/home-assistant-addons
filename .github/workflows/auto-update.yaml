@@ -11,7 +11,7 @@ name: "Auto-update addon store repository"
 #
 # NOTE: the commit is pushed with a PAT (secrets.AUTO_UPDATE_TOKEN) rather than
 # the default GITHUB_TOKEN so that the resulting push to `main` is able to
-# trigger the per-addon docker-build workflows (a push made with GITHUB_TOKEN
+# trigger the add-on build workflows (a push made with GITHUB_TOKEN
 # does not start further workflow runs).
 on:
   repository_dispatch:
@@ -33,7 +33,7 @@ jobs:
       contents: write
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           submodules: false
           persist-credentials: true
@@ -41,7 +41,7 @@ jobs:
 
       - name: Set bot details
         id: bot-details
-        uses: raven-actions/bot-details@v1
+        uses: raven-actions/bot-details@ee8966a9ff6e7e42cbfc4a56b4ddb60a9d1b40a6 # v1.2.0
 
       - name: Resolve inputs
         id: vars
