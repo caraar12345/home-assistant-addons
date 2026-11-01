@@ -36,12 +36,11 @@ on:
 
 env:
   # The directory holding each built add-on's config file. One inside a
-  # submodule (influxdb2/influxdb2) is rebuilt when the submodule pointer moves.
+  # submodule (e.g. name/name) is rebuilt when the submodule pointer moves.
   ADDONS: >-
     promtail
     cadvisor
     cloudflare-speedtest
-    influxdb2/influxdb2
     ma-ingress-proxy
     scanservjs
 
