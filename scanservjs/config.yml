@@ -1,13 +1,12 @@
 name: scanservjs
-version: v2.26.1-5
+version: v2.26.1-6
 slug: scanservjs
 description: scanservjs is a web UI frontend for your scanner
 arch:
-  - armv7
   - aarch64
   - amd64
 startup: application
-image: aaroncarson/scanservjs-ha
+image: ghcr.io/caraar12345/ha-addon-scanservjs
 boot: auto
 icon: icon.png
 logo: icon.png
