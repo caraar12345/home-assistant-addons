@@ -234,6 +234,8 @@ jobs:
           context: ${{ matrix.addon }}
           platforms: linux/amd64,linux/arm64
           push: ${{ env.PUSH == 'true' }}
+          # Without pushing, the cache is the only output a build needs.
+          outputs: ${{ env.PUSH != 'true' && 'type=cacheonly' || '' }}
           build-args: ${{ steps.meta.outputs.build-args }}
           cache-from: type=registry,ref=${{ steps.meta.outputs.image }}:buildcache
           cache-to: type=registry,ref=${{ steps.meta.outputs.image }}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true,ignore-error=true
