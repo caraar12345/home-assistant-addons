@@ -59,7 +59,7 @@ jobs:
     uses: ./.github/workflows/reusable-docker-build.yml
     secrets: inherit
     with:
-      context: ${{ github.workspace }}/promtail
+      context: ./promtail
       registry: ghcr
       image: ghcr.io/${{ github.repository_owner }}/ha-addon-alloy
       version: ${{ needs.meta.outputs.version }}

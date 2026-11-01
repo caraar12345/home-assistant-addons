@@ -26,7 +26,7 @@ jobs:
     uses: ./.github/workflows/reusable-docker-build.yml
     secrets: inherit
     with:
-      context: ${{ github.workspace }}/scanservjs
+      context: ./scanservjs
       registry: dockerhub
       image: aaroncarson/scanservjs-ha
       version: ${{ needs.meta.outputs.version }}

@@ -59,7 +59,7 @@ jobs:
     uses: ./.github/workflows/reusable-docker-build.yml
     secrets: inherit
     with:
-      context: ${{ github.workspace }}/ma-ingress-proxy
+      context: ./ma-ingress-proxy
       registry: ghcr
       image: ghcr.io/caraar12345/ha-addon-ma-ingress-proxy
       version: ${{ needs.meta.outputs.version }}

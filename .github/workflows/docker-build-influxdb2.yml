@@ -52,7 +52,7 @@ jobs:
     uses: ./.github/workflows/reusable-docker-build.yml
     secrets: inherit
     with:
-      context: ${{ github.workspace }}/influxdb2/influxdb2
+      context: ./influxdb2/influxdb2
       registry: dockerhub
       image: aaroncarson/ha-addon-influxdb2
       version: ${{ needs.meta.outputs.version }}
