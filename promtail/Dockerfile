@@ -25,6 +25,8 @@ COPY --from=alloy /usr/bin/alloy /usr/bin/alloy
 RUN alloy --version
 
 COPY rootfs /
+# s6 needs these executable; don't rely on git file modes
+RUN chmod a+x /etc/cont-init.d/*.sh /etc/services.d/alloy/run
 WORKDIR /data/promtail
 
 # Build arguments
