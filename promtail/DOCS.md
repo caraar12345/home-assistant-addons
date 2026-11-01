@@ -1,27 +1,32 @@
-# Home Assistant Add-on: Promtail
+# Home Assistant Add-on: Grafana Alloy
+
+This add-on runs [Grafana Alloy][alloy] to collect logs from your Home Assistant
+system and ship them to [Loki][loki].
+
+It started life as a Promtail add-on. Grafana has deprecated Promtail in favour
+of Alloy, so this fork now runs Alloy instead. The add-on's slug is still
+`promtail` so existing installs keep upgrading in place.
 
 ## Install
 
-First add the repository to the add-on store (`https://github.com/mdegat01/hassio-addons`):
+Add this repository to the add-on store
+(`https://github.com/caraar12345/home-assistant-addons`):
 
 [![Open your Home Assistant instance and show the add add-on repository dialog
 with a specific repository URL pre-filled.][add-repo-shield]][add-repo]
 
-Then find Promtail in the store and click install:
+Then find **Alloy** in the store and click install:
 
 [![Open your Home Assistant instance and show the dashboard of a Supervisor add-on.][add-addon-shield]][add-addon]
 
-## Default Setup
+## Default setup
 
-By default this addon version of Promtail will tail logs from the systemd
-journal. This will include all logs from all addons, supervisor, home assistant,
-docker, and the host system itself. It will then ship them to the Loki add-on in
-this same repository if you have it installed. No additional configuration is
-required if this is the setup you want.
+By default the add-on reads the systemd journal. That includes the logs of every
+add-on, the Supervisor, Home Assistant Core, Docker and the host system itself.
+It ships them to the Loki instance set in `client.url`.
 
-If you adjusted the configuration of the Loki add-on, have a separate Loki
-add-on or have other log files you want Promtail to monitor then see below for
-the configuration options.
+The default `client.url` points at the [Loki add-on][addon-loki] by its add-on
+hostname. If you run Loki somewhere else, set `client.url` to that instead.
 
 ## Configuration
 
@@ -31,11 +36,11 @@ Example add-on configuration:
 
 ```yaml
 client:
-  url: http://39bd2704-loki:3100
+  url: https://loki.example.com/loki/api/v1/push
   username: loki
   password: secret
-  cafile: /ssl/ca.pem
-additional_scrape_configs: /share/promtail/scrape_configs.yaml
+  cafile: ca.pem
+additional_scrape_configs: /share/alloy/scrape-configs.alloy
 log_level: info
 ```
 
@@ -43,232 +48,235 @@ log_level: info
 
 ### Option: `client.url` (required)
 
-The URL of the Loki deployment Promtail should ship logs to.
+The full push URL of the Loki deployment Alloy should ship logs to, including
+the `/loki/api/v1/push` path.
 
-If you use the Loki add-on, this will be `http://39bd2704-loki:3100` (unless you
-enabled `ssl`, then change it to `https`). If you use Grafana Cloud then the URL
-will look like this: `https://<User>:<Your Grafana.com API Key>@logs-prod-us-central1.grafana.net/api/prom/push`
-([see here for more info][grafana-cloud-docs-promtail]).
+If you use the Loki add-on, this is `http://39bd2704-loki:3100/loki/api/v1/push`
+(use `https` if you enabled SSL on it). For Grafana Cloud, use your stack's Loki
+push URL and put the user ID and API token in `client.username` and
+`client.password`.
 
 ### Option: `client.username`
 
-The username to use if you require basic auth to connect to your Loki deployment.
+The username to use if your Loki deployment requires basic auth.
 
 ### Option: `client.password`
 
-The password for the username you choose if you require basic auth to connect to
-your Loki deployment. **Note**: This field is required if `client.username` is
-provided.
+The password for `client.username`. **Note**: This field is required if
+`client.username` is provided.
 
 ### Option: `client.cafile`
 
-The CA certificate used to sign Loki's certificate if Loki is using a self-signed
-certificate for SSL.
+The CA certificate that signed Loki's certificate, if Loki uses a certificate
+your system doesn't already trust.
 
-**Note**: _The file MUST be stored in `/ssl/`, which is the default_
+**Note**: _Give the file name only. The file MUST be stored in `/ssl/`._
 
 ### Option: `client.servername`
 
-The servername listed on the certificate Loki is using if using SSL to connect
-by a different URL then what's on Loki's certificate (usually if the certificate
-lists a public URL and you're connecting locally).
+The server name on Loki's certificate, if you connect using a different name
+than the certificate lists (usually when the certificate has a public name and
+you're connecting locally).
 
 ### Option: `client.certfile`
 
-The absolute path to a certificate for client-authentication if Loki is using
-mTLS to authenticate clients.
+The absolute path to a client certificate, if Loki uses mTLS to authenticate
+clients.
 
 ### Option: `client.keyfile`
 
-The absolute path to the key for the client-authentication certificate if Loki
-is using mTLS to authenticate clients. **Note**: This field is required if
-`client.certfile` is provided
+The absolute path to the key for `client.certfile`. **Note**: This field is
+required if `client.certfile` is provided.
+
+### Option: `timezone`
+
+Currently unused. The add-on follows the time zone set in Home Assistant, which
+the Supervisor passes in.
 
 ### Option: `additional_pipeline_stages`
 
-The absolute path to a YAML file with a list of additional pipeline stages to
-apply to the [default journal scrape config][addon-default-config]. The primary
-use of this is to apply additional processing to logs from particular add-ons
-you use if they are noisy or difficult to read.
+The absolute path to a file of Alloy `stage.*` blocks to add to the
+[default journal config][addon-default-config]. The primary use of this is to
+apply additional processing to logs from particular add-ons you use if they are
+noisy or difficult to read.
 
-This file must contain only a YAML list of pipeline stages. They will be added
-to the end of the ones already listed. If you don't like the ones listed, use
+The file must contain only `stage.*` blocks (Alloy syntax, not YAML). They are
+inserted inside the default `loki.process "journal"` block, after the stages
+already there. If you don't like the default stages, use
 `skip_default_scrape_config` and `additional_scrape_configs` to write your own
 instead. Here's an example of the contents of this file:
 
-```yaml
-- match:
-    selector: '{container_name="addon_cebe7a76_hassio_google_drive_backup"}'
-    stages:
-      - multiline:
-          firstline: '^\x{001b}'
+```alloy
+stage.match {
+  selector = `{container_name="app_cebe7a76_hassio_google_drive_backup"}`
+
+  stage.multiline {
+    firstline = `^\x{001b}`
+  }
+}
 ```
 
-This particular example applies to the [google drive backup addon][addon-google-drive-backup].
+This particular example applies to the [Google Drive backup add-on][addon-google-drive-backup].
 It uses the same log format as Home Assistant and outputs the escape character
 at the start of each log line for color-coding in terminals. Looking for that
 in a multiline stage makes it so tracebacks are included in the same log entry
 as the error that caused them for easier readability.
 
-See the [promtail documentation][promtail-doc-stages] for more information on how
-to configure pipeline stages.
+See the [`loki.process` documentation][alloy-doc-loki-process] for the stages
+available and how to configure them.
 
-**Note**: This addon has access to `/ssl`, `/share` and `/config/promtail`. Place
+**Note**: This add-on has access to `/ssl`, `/share` and `/config/alloy`. Place
 the file in one of these locations, others will not work.
 
 ### Option: `skip_default_scrape_config`
 
-Promtail will scrape the `systemd journal` using a pre-defined config you can
-find [here][addon-default-config]. If you only want it to look at specific log
-files you specify or you don't like the default config and want to adjust it, set
-this to `true`. Then the only scrape configs used will be the ones you specify
-in the `additional_scrape_configs` file.
-
-**Note**: This addon has access to `/ssl`, `/share` and `/config/promtail`. Place
-the file in one of these locations, others will not work.
+Alloy reads the systemd journal using a pre-defined config you can find
+[here][addon-default-config]. If you only want it to look at specific log files,
+or you want to replace the default config with your own, set this to `true`.
+Then the only components used are the ones in your `additional_scrape_configs`
+file.
 
 ### Option: `additional_scrape_configs`
 
-The absolute path to a YAML file with a list of additional scrape configs for
-Promtail to use. The primary use of this is to point Promtail at additional log
-files created by add-ons which don't use `stdout` for all logging. You an also
-change the system journal is scraped by using this in conjunction with
-`skip_default_scrape_config`. **Note**: If `skip_default_scrape_config` is `true`
-then this field becomes required (otherwise there would be no scrape configs)
+The absolute path to a file of additional Alloy components (Alloy syntax, not
+YAML), appended to the generated config. The primary use of this is to point
+Alloy at additional log files created by add-ons which don't use `stdout` for
+all logging. You can also change how the system journal is read by using this
+in conjunction with `skip_default_scrape_config`. **Note**: If
+`skip_default_scrape_config` is `true` then this field becomes required
+(otherwise there would be nothing to collect).
 
-The file must contain only a YAML list of scrape configs. Here's an example of
-the contents of this file:
+Send logs to `loki.write.default.receiver`, which the add-on defines from the
+`client` options. Here's an example of the contents of this file:
 
-```yaml
-- job_name: zigbee2mqtt_messages
-  pipeline_stages:
-  static_configs:
-    - targets:
-        - localhost
-      labels:
-        job: zigbee2mqtt_messages
-        __path__: /share/zigbee2mqtt/log/**.txt
+```alloy
+local.file_match "zigbee2mqtt" {
+  path_targets = [{
+    __path__ = "/share/zigbee2mqtt/log/**/*.txt",
+    job      = "zigbee2mqtt_messages",
+  }]
+}
+
+loki.source.file "zigbee2mqtt" {
+  targets    = local.file_match.zigbee2mqtt.targets
+  forward_to = [loki.write.default.receiver]
+}
 ```
 
-This particular example would cause Promtail to scrape up the logs MQTT that the
+This particular example would cause Alloy to collect the MQTT logs that the
 [Zigbee2MQTT add-on][addon-z2m] makes by default.
 
-Promtail provides a lot of options for configuring scrape configs. See the
-documentation on [scrape_configs][promtail-doc-scrape-configs] for more info on
-the options available and how to configure them. The documentation also provides
-[other examples][promtail-doc-examples] you can use.
+See the [Alloy components reference][alloy-doc-components] for the options
+available.
 
-I would also recommend reading the [Loki best practices][loki-doc-best-practices]
-guide before making custom scrape configs. Pipelines are pretty powerful but
-avoid making too many labels, it does more harm then good. Instead look into
-what you can do with [LogQL][logql] can do at the other end.
+I would also recommend reading the [Loki label best practices][loki-doc-labels]
+before writing custom configs. Pipelines are powerful, but avoid making too many
+labels: it does more harm than good. Look at what you can do with
+[LogQL][logql] at query time instead.
 
-**Note**: This addon has access to `/ssl`, `/share` and `/config/promtail`. Place
+**Note**: This add-on has access to `/ssl`, `/share` and `/config/alloy`. Place
 the file in one of these locations, others will not work.
-
-### Port: `9080/tcp`
-
-Promtail expose an [API][api] on this port. This is primarily used for healthchecks
-by the supervisor watchdog which does not require exposing it on the host. Most
-users should leave this option disabled unless you have an external application
-doing healthchecks.
-
-For advanced users creating custom scrape configs the other purpose of this API
-is to expose metrics created by the [metrics][promtail-doc-metrics] pipeline
-stage. Exposing this port would then allow you to read those metrics from another
-system on your network.
 
 ### Option: `log_level`
 
-The `log_level` option controls the level of log output by the addon and can
-be changed to be more or less verbose, which might be useful when you are
-dealing with an unknown issue. Possible values are:
+Controls how much the add-on and Alloy log, which can help when you're dealing
+with an unknown issue. Possible values are:
 
-- `debug`: Shows detailed debug information.
+- `trace` or `debug`: Shows detailed debug information.
 - `info`: Normal (usually) interesting events.
-- `warning`: Exceptional occurrences that are not errors.
-- `error`: Runtime errors that do not require immediate action.
+- `notice` or `warning`: Exceptional occurrences that are not errors.
+- `error` or `fatal`: Runtime errors that do not require immediate action.
 
-Please note that each level automatically includes log messages from a
-more severe level, e.g., `debug` also shows `info` messages. By default,
-the `log_level` is set to `info`, which is the recommended setting unless
-you are troubleshooting.
+Alloy has four levels, so `trace` runs as `debug`, `notice` as `warning` and
+`fatal` as `error`. Each level includes messages from the more severe levels;
+for example, `debug` also shows `info` messages. The default is `info`, which is
+the recommended setting unless you are troubleshooting.
 
-## PLG Stack (Promtail, Loki and Grafana)
+### Port: `9080/tcp`
 
-Promtail isn't a standalone application, it's job is to find logs, process them
-and ship them to Loki. Most likely you want the full PLG stack:
+Alloy's HTTP server listens on this port. It serves Alloy's web UI, its own
+metrics and the health endpoint the Supervisor watchdog uses. The watchdog
+doesn't need the port exposed on the host, so most users should leave it
+disabled.
 
-- Promtail to process and ship logs
-- Loki to aggregate and index them
-- Grafana to visualize and monitor them
+Expose it if you want to browse the Alloy UI (handy for debugging pipelines) or
+scrape Alloy's metrics from another system on your network.
+
+## Labels added by the default journal config
+
+| Label | Source journal field |
+|---|---|
+| `job` | always `systemd-journal` |
+| `unit` | `_SYSTEMD_UNIT` |
+| `nodename` | `_HOSTNAME` |
+| `syslog_identifier` | `SYSLOG_IDENTIFIER` |
+| `container_name` | `CONTAINER_NAME` |
+| `boot_id` | `_BOOT_ID` (changes on every host reboot) |
+
+## Alloy, Loki and Grafana
+
+Alloy doesn't stand alone: its job is to find logs, process them and ship them
+to Loki. Most likely you want all three pieces:
+
+- **Alloy** to collect, process and ship logs (this add-on)
+- **Loki** to store and index them
+- **Grafana** to query and visualise them
+
+This used to be called the "PLG stack", with Promtail as the collector. Alloy
+has replaced Promtail in that role. Grafana doesn't use a new three-letter name
+for it; their docs describe Alloy as the collector for their "LGTM" stack (Loki,
+Grafana, Tempo, Mimir).
 
 ### Loki
 
-The easiest way to get started is to also install the Loki add-on in this same
-repository. By default this add-on is set up to collect all logs from the system
-journal and ship them over to that add-on. If that's what you want there is no
-additional configuration required for either.
+You need a Loki instance to send logs to. Options include:
 
-[![Open your Home Assistant instance and show the dashboard of a Supervisor add-on.][add-addon-shield]][add-addon-loki]
-
-Alternatively you can deploy Loki somewhere else. Take a look at the
-[Loki documentation][loki-doc] for info on setting up a Loki deployment and
-connecting Promtail to it.
+- The original author's [Loki add-on][addon-loki], which runs Loki on your Home
+  Assistant system. Note that it hasn't been updated since 2024.
+- Your own Loki deployment elsewhere. See the [Loki documentation][loki-doc] for
+  setup options.
+- Grafana Cloud, which runs Loki and Grafana for you.
 
 ### Grafana
 
-Once you have Loki and Promtail set up you will probably want to connect to it
-from [Grafana][grafana]. The easiest way to do that is to use the
-[Grafana community add-on][addon-grafana]. From there you can find Loki in the
-list of data sources and configure the connection (see [Loki in Grafana][loki-in-grafana]).
-If you did choose to use the Loki add-on you can find additional instructions in
-[the add-on's documentation][addon-loki-doc].
-
-[![Open your Home Assistant instance and show the dashboard of a Supervisor add-on.][add-addon-shield]][add-addon-grafana]
+Once Loki is receiving logs, connect [Grafana][grafana] to it to query them. The
+[Grafana community add-on][addon-grafana] is the easiest way to run Grafana on
+Home Assistant. Add Loki as a data source there (see
+[Loki in Grafana][loki-in-grafana]).
 
 ### Grafana Cloud
 
-If you prefer, you can also use Grafana's cloud service,
-[see here](https://grafana.com/products/cloud/) on how to get started. This
-service takes the place of both Loki and Grafana in the PLG stack, you just
-point Promtail at it and you're done. To do this, first create an account then
-[review this guide][grafana-cloud-docs-promtail] to see how to connect Promtail
-to your account. Essentially its just a different URL since the credential information
-goes in the URL.
+Grafana Cloud takes the place of both Loki and Grafana. Create an account, then
+point this add-on at your stack's Loki push URL with `client.url`, using
+`client.username` and `client.password` for the credentials.
 
-## Changelog & Releases
+## Versions
 
-This repository keeps a change log using [GitHub's releases][releases]
-functionality.
+Versions follow `<Alloy version>-aaroncarson.<n>`. For example,
+`v1.21.3-aaroncarson.1` is the first release of this add-on on Alloy v1.21.3.
+`<n>` goes up for add-on changes that don't change the Alloy version.
 
-Releases are based on [Semantic Versioning][semver], and use the format
-of `MAJOR.MINOR.PATCH`. In a nutshell, the version will be incremented
-based on the following:
-
-- `MAJOR`: Incompatible or major changes.
-- `MINOR`: Backwards-compatible new features and enhancements.
-- `PATCH`: Backwards-compatible bugfixes and package updates.
+Changes are tracked in the [repository's commit history and pull
+requests][repo].
 
 ## Support
 
-Got questions?
+This is a personal fork, so please report problems with it on
+[this repository's issue tracker][issue]. Please don't raise issues with this
+fork with the original authors: their add-ons are separate projects and they
+don't maintain this one.
 
-You have several ways to get them answered:
+## Credits
 
-- The Home Assistant [Community Forum][forum]. I am
-  [CentralCommand][forum-centralcommand] there.
-- The Home Assistant [Discord Chat Server][discord-ha]. Use the #add-ons channel,
-  I am CentralCommand#0913 there.
+This add-on is built on others' work:
 
-You could also [open an issue here][issue] on GitHub.
+- [Mike Degatano (@mdegat01)][mdegat01] created the original
+  [Promtail add-on][addon-promtail-upstream] this is based on. See its
+  [contributors][contributors-upstream].
+- [@LucidityCrash][luciditycrash] forked it to fix some issues.
+- This fork migrated the add-on from Promtail to Grafana Alloy.
 
-## Authors & contributors
-
-The original setup of this repository is by [Mike Degatano][mdegat01].
-
-For a full list of all authors and contributors,
-check [the contributor's page][contributors].
+Thank you to everyone who worked on it before.
 
 ## License
 
@@ -295,33 +303,26 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 [add-addon-shield]: https://my.home-assistant.io/badges/supervisor_addon.svg
-[add-addon]: https://my.home-assistant.io/redirect/supervisor_addon/?addon=39bd2704_promtail
-[add-addon-grafana]: https://my.home-assistant.io/redirect/supervisor_addon/?addon=a0d7b954_grafana
-[add-addon-loki]: https://my.home-assistant.io/redirect/supervisor_addon/?addon=39bd2704_loki
+[add-addon]: https://my.home-assistant.io/redirect/supervisor_addon/?addon=d630ad5e_promtail
 [add-repo-shield]: https://my.home-assistant.io/badges/supervisor_add_addon_repository.svg
-[add-repo]: https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fmdegat01%2Fhassio-addons
-[addon-default-config]: https://github.com/mdegat01/addon-promtail/blob/main/promtail/rootfs/etc/promtail/default-scrape-config.yaml
-[addon-grafana]: https://github.com/hassio-addons/addon-grafana
+[add-repo]: https://my.home-assistant.io/redirect/supervisor_add_addon_repository/?repository_url=https%3A%2F%2Fgithub.com%2Fcaraar12345%2Fhome-assistant-addons
+[addon-default-config]: https://github.com/caraar12345/home-assistant-addons/blob/main/promtail/rootfs/etc/alloy/default-scrape-config.alloy
 [addon-google-drive-backup]: https://github.com/sabeechen/hassio-google-drive-backup
-[addon-loki-doc]: https://github.com/mdegat01/addon-loki/blob/main/loki/DOCS.md#grafana
+[addon-grafana]: https://github.com/hassio-addons/addon-grafana
+[addon-loki]: https://github.com/mdegat01/addon-loki
+[addon-promtail-upstream]: https://github.com/mdegat01/addon-promtail
 [addon-z2m]: https://github.com/zigbee2mqtt/hassio-zigbee2mqtt
-[api]: https://grafana.com/docs/loki/latest/clients/promtail/#api
-[contributors]: https://github.com/mdegat01/addon-promtail/graphs/contributors
-[discord-ha]: https://discord.gg/c5DvZ4e
-[forum-centralcommand]: https://community.home-assistant.io/u/CentralCommand/?u=CentralCommand
-[forum]: https://community.home-assistant.io/t/home-assistant-add-on-promtail/293732?u=CentralCommand
+[alloy]: https://grafana.com/docs/alloy/latest/
+[alloy-doc-components]: https://grafana.com/docs/alloy/latest/reference/components/
+[alloy-doc-loki-process]: https://grafana.com/docs/alloy/latest/reference/components/loki/loki.process/
+[contributors-upstream]: https://github.com/mdegat01/addon-promtail/graphs/contributors
 [grafana]: https://grafana.com/oss/grafana/
-[grafana-cloud]: https://grafana.com/products/cloud/
-[grafana-cloud-docs-promtail]: https://grafana.com/docs/grafana-cloud/quickstart/logs_promtail_linuxnode/
-[issue]: https://github.com/mdegat01/addon-promtail/issues
-[logql]: https://grafana.com/docs/loki/latest/logql/
-[loki-doc]: https://grafana.com/docs/loki/latest/overview/
-[loki-doc-best-practices]: https://grafana.com/docs/loki/latest/best-practices/
-[loki-in-grafana]: https://grafana.com/docs/loki/latest/getting-started/grafana/
+[issue]: https://github.com/caraar12345/home-assistant-addons/issues
+[logql]: https://grafana.com/docs/loki/latest/query/
+[loki]: https://grafana.com/oss/loki/
+[loki-doc]: https://grafana.com/docs/loki/latest/
+[loki-doc-labels]: https://grafana.com/docs/loki/latest/get-started/labels/bp-labels/
+[loki-in-grafana]: https://grafana.com/docs/grafana/latest/datasources/loki/configure/
+[luciditycrash]: https://github.com/LucidityCrash/addon-promtail
 [mdegat01]: https://github.com/mdegat01
-[promtail-doc-examples]: https://grafana.com/docs/loki/latest/clients/promtail/configuration/#example-static-config
-[promtil-doc-metrics]: https://grafana.com/docs/loki/latest/clients/promtail/configuration/#metrics
-[promtail-doc-scrape-configs]: https://grafana.com/docs/loki/latest/clients/promtail/configuration/#scrape_configs
-[promtail-doc-stages]: https://grafana.com/docs/loki/latest/clients/promtail/stages/
-[releases]: https://github.com/mdegat01/addon-promtail/releases
-[semver]: http://semver.org/spec/v2.0.0
+[repo]: https://github.com/caraar12345/home-assistant-addons/commits/main/promtail

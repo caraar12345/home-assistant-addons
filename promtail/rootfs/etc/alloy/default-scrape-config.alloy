@@ -3,36 +3,43 @@
 // Relabel rules for journal entries
 discovery.relabel "journal" {
   targets = []
-  
+
   rule {
     source_labels = ["__journal__systemd_unit"]
     target_label  = "unit"
   }
-  
+
   rule {
     source_labels = ["__journal__hostname"]
     target_label  = "nodename"
   }
-  
+
   rule {
     source_labels = ["__journal_syslog_identifier"]
     target_label  = "syslog_identifier"
   }
-  
+
   rule {
     source_labels = ["__journal_container_name"]
     target_label  = "container_name"
+  }
+
+  // Host boot ID: changes on every OS (re)boot, so one new value per reboot.
+  // Lets you select a single boot's logs, e.g. {nodename="homeassistant", boot_id="..."}.
+  rule {
+    source_labels = ["__journal__boot_id"]
+    target_label  = "boot_id"
   }
 }
 
 // Process systemd journal logs
 loki.source.journal "journal" {
   path = env("JOURNAL_PATH")
-  
+
   labels = {
     job = "systemd-journal",
   }
-  
+
   relabel_rules = discovery.relabel.journal.rules
   forward_to    = [loki.process.journal.receiver]
 }
@@ -41,11 +48,13 @@ loki.source.journal "journal" {
 loki.process "journal" {
   stage.match {
     selector = `{container_name=~"homeassistant|hassio_supervisor"}`
-    
+
     stage.multiline {
       firstline = `^\x{001b}`
     }
   }
-  
+
+  // ADDITIONAL_PIPELINE_STAGES
+
   forward_to = [loki.write.default.receiver]
 }
