@@ -1,0 +1,38 @@
+---
+configuration:
+  modem_url:
+    name: Modem API URL
+    description: >-
+      Base URL of the modem's REST API, e.g. https://192.168.100.1/rest/v1
+      (the Hub's address in modem mode).
+  verify_ssl:
+    name: Verify TLS certificate
+    description: Hubs use a self-signed certificate, so leave this off unless yours has a valid one.
+  scrape_interval:
+    name: Scrape interval
+    description: Seconds between polls of the modem.
+  request_timeout:
+    name: Request timeout
+    description: Seconds to wait for each request to the modem or Loki.
+  loki_url:
+    name: Loki URL
+    description: >-
+      Base URL of a Loki server (e.g. http://loki.example:3100) to push the
+      modem's event log to. Leave empty to not push it.
+  loki_username:
+    name: Loki username
+    description: Username for basic auth to Loki, if it needs one.
+  loki_password:
+    name: Loki password
+    description: Password for basic auth to Loki.
+  loki_job:
+    name: Loki job label
+    description: Value of the job label on pushed event log lines (default modem_eventlog).
+  loki_host:
+    name: Loki host label
+    description: Value of the host label on pushed event log lines (default modem).
+  log_level:
+    name: Log level
+    description: How much the add-on logs.
+network:
+  9781/tcp: Prometheus metrics endpoint (/metrics)
