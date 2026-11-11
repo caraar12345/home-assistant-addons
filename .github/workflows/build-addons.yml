@@ -45,9 +45,9 @@ env:
     cadvisor
     cloudflare-speedtest
     ma-ingress-proxy
-    modem-exporter
     prometheus
     scanservjs
+    vm-hub5-exporter
 
 permissions:
   contents: read

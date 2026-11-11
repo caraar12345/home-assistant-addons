@@ -16,7 +16,7 @@ Exposes:
   - Optionally pushes new modem event log entries to Loki
 
 Configuration comes from the add-on options (/data/options.json, or the file
-named by MODEM_EXPORTER_OPTIONS).
+named by VM_HUB5_EXPORTER_OPTIONS).
 """
 
 import base64
@@ -31,10 +31,10 @@ from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock, Thread
 
-OPTIONS_FILE = os.environ.get("MODEM_EXPORTER_OPTIONS", "/data/options.json")
-PORT = int(os.environ.get("MODEM_EXPORTER_PORT", "9781"))
+OPTIONS_FILE = os.environ.get("VM_HUB5_EXPORTER_OPTIONS", "/data/options.json")
+PORT = int(os.environ.get("VM_HUB5_EXPORTER_PORT", "9781"))
 
-log = logging.getLogger("modem_exporter")
+log = logging.getLogger("vm_hub5_exporter")
 
 
 class Config:

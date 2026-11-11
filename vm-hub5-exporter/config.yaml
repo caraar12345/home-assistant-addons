@@ -1,13 +1,13 @@
 ---
-name: Modem Exporter (VM Hub 5)
+name: vm-hub5-exporter
 version: 1.0.0
-slug: modem-exporter
+slug: vm-hub5-exporter
 description: Prometheus exporter for the Virgin Media (GB) Hub 5 only
-url: https://github.com/caraar12345/home-assistant-addons/tree/main/modem-exporter
+url: https://github.com/caraar12345/home-assistant-addons/tree/main/vm-hub5-exporter
 arch:
   - aarch64
   - amd64
-image: ghcr.io/caraar12345/ha-addon-modem-exporter
+image: ghcr.io/caraar12345/ha-addon-vm-hub5-exporter
 init: false
 ports:
   9781/tcp: 9781

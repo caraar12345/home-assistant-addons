@@ -1,4 +1,4 @@
-# Modem Exporter (VM Hub 5)
+# vm-hub5-exporter
 
 Polls a Virgin Media Hub 5's REST API and exposes what it finds as Prometheus
 metrics on port 9781 (`/metrics`). It can also push new modem event log

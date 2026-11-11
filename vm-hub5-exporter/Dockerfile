@@ -11,8 +11,8 @@ RUN apk add --no-cache python3
 
 COPY rootfs /
 # s6 needs these executable; don't rely on git file modes
-RUN chmod a+x /etc/services.d/modem-exporter/run /etc/services.d/modem-exporter/finish \
-    && python3 -m py_compile /opt/modem-exporter/modem_exporter.py
+RUN chmod a+x /etc/services.d/vm-hub5-exporter/run /etc/services.d/vm-hub5-exporter/finish \
+    && python3 -m py_compile /opt/vm-hub5-exporter/vm_hub5_exporter.py
 
 # Build arguments
 ARG BUILD_ARCH
@@ -36,9 +36,9 @@ LABEL \
     org.opencontainers.image.vendor="aaroncarson's Home Assistant Add-ons" \
     org.opencontainers.image.authors="caraar12345" \
     org.opencontainers.image.licenses="MIT" \
-    org.opencontainers.image.url="https://github.com/caraar12345/home-assistant-addons/tree/main/modem-exporter" \
+    org.opencontainers.image.url="https://github.com/caraar12345/home-assistant-addons/tree/main/vm-hub5-exporter" \
     org.opencontainers.image.source="https://github.com/${BUILD_REPOSITORY}" \
-    org.opencontainers.image.documentation="https://github.com/${BUILD_REPOSITORY}/blob/main/modem-exporter/DOCS.md" \
+    org.opencontainers.image.documentation="https://github.com/${BUILD_REPOSITORY}/blob/main/vm-hub5-exporter/DOCS.md" \
     org.opencontainers.image.created=${BUILD_DATE} \
     org.opencontainers.image.revision=${BUILD_REF} \
     org.opencontainers.image.version=${BUILD_VERSION}
