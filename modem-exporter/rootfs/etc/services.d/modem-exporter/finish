@@ -1,7 +1,7 @@
 #!/command/with-contenv bashio
 # shellcheck shell=bash
 # ==============================================================================
-# Modem Exporter add-on: take down the add-on if the exporter crashes
+# Modem Exporter (VM Hub 5) add-on: take down the add-on if the exporter crashes
 # ==============================================================================
 if [[ "${1}" -ne 0 ]] && [[ "${1}" -ne 256 ]]; then
   bashio::log.warning "Modem Exporter crashed, halting add-on"

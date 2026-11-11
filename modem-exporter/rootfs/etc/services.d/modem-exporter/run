@@ -1,7 +1,7 @@
 #!/command/with-contenv bashio
 # shellcheck shell=bash
 # ==============================================================================
-# Modem Exporter add-on: run the exporter (it reads /data/options.json itself)
+# Modem Exporter (VM Hub 5) add-on: run the exporter (it reads /data/options.json itself)
 # ==============================================================================
 bashio::log.info 'Starting Modem Exporter...'
 exec python3 /opt/modem-exporter/modem_exporter.py

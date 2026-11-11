@@ -1,18 +1,20 @@
-# Modem Exporter
+# Modem Exporter (VM Hub 5)
 
-Polls a cable modem's REST API and exposes what it finds as Prometheus
+Polls a Virgin Media Hub 5's REST API and exposes what it finds as Prometheus
 metrics on port 9781 (`/metrics`). It can also push new modem event log
 entries to Loki.
 
-It was written for Virgin Media Hubs (Hub 4/5), which serve the API at
-`https://<hub>/rest/v1`. In modem mode a Hub is usually at `192.168.100.1`.
+**It only supports the Virgin Media (GB) Hub 5.** Other modems, including
+earlier Virgin Media Hubs, have different APIs and won't work. The Hub 5
+serves the API at `https://<hub>/rest/v1`, and in modem mode it's usually at
+`192.168.100.1`.
 
 ## Options
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `modem_url` | `https://192.168.100.1/rest/v1` | Base URL of the modem's REST API. |
-| `verify_ssl` | `false` | Check the modem's TLS certificate. Hubs use a self-signed one, so leave this off unless yours is valid. |
+| `modem_url` | `https://192.168.100.1/rest/v1` | Base URL of the Hub 5's REST API. |
+| `verify_ssl` | `false` | Check the Hub's TLS certificate. The Hub 5 uses a self-signed one, so leave this off unless yours is valid. |
 | `scrape_interval` | `30` | Seconds between polls of the modem. |
 | `request_timeout` | `10` | Seconds to wait for each request to the modem or Loki. |
 | `loki_url` | | Base URL of a Loki server, e.g. `http://loki.example:3100`. Leave empty to not push the event log. |

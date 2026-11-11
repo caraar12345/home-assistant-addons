@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prometheus exporter for cable modems with a Virgin Media Hub style REST API.
+"""Prometheus exporter for the Virgin Media (GB) Hub 5 (its REST API only).
 
 Ported from caraar12345/monitoring-config (roles/modem_exporter). Metric
 names and labels are unchanged, so existing dashboards and alerts still work.
@@ -55,7 +55,7 @@ class Config:
         if self.verify_ssl:
             self.ssl_ctx = ssl.create_default_context()
         else:
-            # Hubs serve a self-signed certificate.
+            # The Hub 5 serves a self-signed certificate.
             self.ssl_ctx = ssl.create_default_context()
             self.ssl_ctx.check_hostname = False
             self.ssl_ctx.verify_mode = ssl.CERT_NONE

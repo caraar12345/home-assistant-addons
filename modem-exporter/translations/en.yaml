@@ -3,11 +3,11 @@ configuration:
   modem_url:
     name: Modem API URL
     description: >-
-      Base URL of the modem's REST API, e.g. https://192.168.100.1/rest/v1
-      (the Hub's address in modem mode).
+      Base URL of the Hub 5's REST API, e.g. https://192.168.100.1/rest/v1
+      (the Hub 5's address in modem mode).
   verify_ssl:
     name: Verify TLS certificate
-    description: Hubs use a self-signed certificate, so leave this off unless yours has a valid one.
+    description: The Hub 5 uses a self-signed certificate, so leave this off unless yours has a valid one.
   scrape_interval:
     name: Scrape interval
     description: Seconds between polls of the modem.
