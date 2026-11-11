@@ -17,7 +17,7 @@ serves the API at `https://<hub>/rest/v1`, and in modem mode it's usually at
 | `verify_ssl` | `false` | Check the Hub's TLS certificate. The Hub 5 uses a self-signed one, so leave this off unless yours is valid. |
 | `scrape_interval` | `30` | Seconds between polls of the modem. |
 | `request_timeout` | `10` | Seconds to wait for each request to the modem or Loki. |
-| `loki_url` | | Base URL of a Loki server, e.g. `http://loki.example:3100`. Leave empty to not push the event log. |
+| `loki_url` | | Base URL of a Loki server, e.g. `http://loki.example:3100`. Leave empty to not push the event log. Use `https://` if you set credentials, or they're sent unencrypted. |
 | `loki_username` / `loki_password` | | Basic auth for Loki, if needed (e.g. Grafana Cloud). |
 | `loki_job` | `modem_eventlog` | `job` label on pushed log lines. |
 | `loki_host` | `modem` | `host` label on pushed log lines. |
@@ -63,11 +63,18 @@ All metrics start with `modem_`:
 - Exporter: `scrape_success`, `scrape_duration_seconds`
 
 If any request to the modem fails, only `modem_scrape_success 0` (and the
-duration) are exposed until the next successful poll.
+duration) are exposed until the next successful poll. The exception is the
+primary-channel lookup: if that fails, only the `*_primary` metrics are
+left out.
+
+`/healthz` returns 503 if polling has stalled, so the Supervisor watchdog
+restarts the add-on.
 
 ## Event log
 
 With `loki_url` set, each poll fetches the modem's event log and pushes
-entries it hasn't sent before, one stream per `priority`. The add-on only
-remembers what it has sent while it's running, so after a restart it sends
-the whole log again. Loki drops lines that are exact duplicates.
+entries it hasn't sent before, one stream per `priority`. This happens even
+when the metrics requests fail. Entries Loki doesn't accept are retried on
+the next poll. The add-on only remembers what it has sent while it's
+running, so after a restart it sends the whole log again. Loki drops lines
+that are exact duplicates.

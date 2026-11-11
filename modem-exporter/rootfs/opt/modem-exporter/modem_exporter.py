@@ -68,16 +68,34 @@ def load_config() -> Config:
 
 CFG: Config
 
+# The Hub 5's largest response (the event log) is tens of KB.
+MAX_RESPONSE_BYTES = 4 * 1024 * 1024
+
 _lock = Lock()
 _metrics_body = ""
+_last_scrape_end = time.monotonic()
 _seen_log_entries: set[str] = set()
+
+
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    """Loki's push API never redirects, and following one would forward the
+    Authorization header to wherever it points."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise urllib.error.HTTPError(req.full_url, code, f"refusing redirect to {newurl}", headers, fp)
+
+
+_loki_opener = urllib.request.build_opener(_NoRedirect)
 
 
 def fetch(path: str) -> dict:
     url = f"{CFG.modem_url}{path}"
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
     with urllib.request.urlopen(req, context=CFG.ssl_ctx, timeout=CFG.request_timeout) as resp:
-        return json.loads(resp.read())
+        body = resp.read(MAX_RESPONSE_BYTES + 1)
+    if len(body) > MAX_RESPONSE_BYTES:
+        raise ValueError(f"{path}: response larger than {MAX_RESPONSE_BYTES} bytes")
+    return json.loads(body)
 
 
 # --- Exposition -------------------------------------------------------------
@@ -178,14 +196,16 @@ def collect_modemmode(m: Metrics) -> None:
     )
 
 
-def _primary_channel(direction: str) -> dict:
-    """Identifying fields of the primary channel. Matched by channelId if
-    present, otherwise frequency (upstream primary_ only returns frequency)."""
+def _primary_channel(direction: str) -> dict | None:
+    """Identifying fields of the primary channel, matched by channelId if
+    present, otherwise frequency (upstream primary_ only returns frequency).
+    None if the request failed, so the primary metric is left out rather
+    than reporting every channel as non-primary."""
     try:
         return fetch(f"/cablemodem/{direction}/primary_").get("channel", {}) or {}
     except Exception as e:
-        log.warning("Failed to fetch primary %s channel: %s", direction, e)
-        return {}
+        log.warning("Failed to fetch primary %s channel, omitting modem_%s_primary: %s", direction, direction, e)
+        return None
 
 
 def _is_primary(ch: dict, primary: dict) -> bool:
@@ -242,12 +262,13 @@ def collect_downstream(m: Metrics) -> None:
             _bool(ch.get("lockStatus", False)),
             labels,
         )
-        m.add(
-            "modem_downstream_primary",
-            "Whether this is the primary downstream channel (1=yes, 0=no)",
-            _bool(_is_primary(ch, primary)),
-            labels,
-        )
+        if primary is not None:
+            m.add(
+                "modem_downstream_primary",
+                "Whether this is the primary downstream channel (1=yes, 0=no)",
+                _bool(_is_primary(ch, primary)),
+                labels,
+            )
 
 
 def collect_upstream(m: Metrics) -> None:
@@ -292,12 +313,13 @@ def collect_upstream(m: Metrics) -> None:
             ch.get("symbolRate", 0),
             labels,
         )
-        m.add(
-            "modem_upstream_primary",
-            "Whether this is the primary upstream channel (1=yes, 0=no)",
-            _bool(_is_primary(ch, primary)),
-            labels,
-        )
+        if primary is not None:
+            m.add(
+                "modem_upstream_primary",
+                "Whether this is the primary upstream channel (1=yes, 0=no)",
+                _bool(_is_primary(ch, primary)),
+                labels,
+            )
 
 
 def collect_serviceflows(m: Metrics) -> None:
@@ -357,7 +379,8 @@ def _ts_ns(entry: dict) -> str:
         return str(int(time.time() * 1e9))
 
 
-def push_to_loki(entries: list[dict]) -> None:
+def push_to_loki(entries: list[dict]) -> bool:
+    """Returns True if Loki accepted the entries."""
     by_priority: dict[str, list] = {}
     for e in entries:
         by_priority.setdefault(e.get("priority", "unknown"), []).append([_ts_ns(e), e.get("message", "")])
@@ -377,26 +400,29 @@ def push_to_loki(entries: list[dict]) -> None:
         method="POST",
     )
     try:
-        with urllib.request.urlopen(req, timeout=CFG.request_timeout) as resp:
-            if resp.status not in (200, 204):
-                log.warning("Loki push returned %s", resp.status)
+        with _loki_opener.open(req, timeout=CFG.request_timeout) as resp:
+            if resp.status in (200, 204):
+                return True
+            log.warning("Loki push returned %s", resp.status)
     except urllib.error.HTTPError as e:
-        log.warning("Failed to push to Loki: %s %s", e, e.read(500).decode(errors="replace"))
+        body = e.read(500).decode(errors="replace") if e.fp else ""
+        log.warning("Failed to push to Loki: %s %s", e, body)
     except Exception as e:
         log.warning("Failed to push to Loki: %s", e)
+    return False
 
 
 def poll_eventlog() -> None:
     entries = fetch("/cablemodem/eventlog").get("eventlog", [])
-    new_entries = []
+    new = {}
     for e in entries:
         key = f"{e.get('time', '')}|{e.get('message', '')}"
         if key not in _seen_log_entries:
-            _seen_log_entries.add(key)
-            new_entries.append(e)
-    if new_entries:
-        log.info("Pushing %d new event log entries to Loki", len(new_entries))
-        push_to_loki(new_entries)
+            new[key] = e
+    # Only remember entries once Loki has them, so a failed push is retried.
+    if new and push_to_loki(list(new.values())):
+        log.info("Pushed %d new event log entries to Loki", len(new))
+        _seen_log_entries.update(new)
 
 
 # --- Main loop and HTTP server ----------------------------------------------
@@ -423,7 +449,7 @@ def scrape_once() -> None:
     with _lock:
         _metrics_body = m.render()
 
-    if success and CFG.loki_url:
+    if CFG.loki_url:
         try:
             poll_eventlog()
         except Exception as e:
@@ -431,9 +457,20 @@ def scrape_once() -> None:
 
 
 def scrape_loop() -> None:
+    global _last_scrape_end
     while True:
         scrape_once()
+        _last_scrape_end = time.monotonic()
         time.sleep(CFG.scrape_interval)
+
+
+def healthy() -> bool:
+    """False if the polling loop looks stuck (e.g. a modem that never
+    finishes a response), so the Supervisor watchdog restarts the add-on.
+    A poll makes up to 9 modem requests plus a Loki push, each bounded by
+    request_timeout per blocking read."""
+    allowance = 3 * CFG.scrape_interval + 10 * CFG.request_timeout * 3
+    return time.monotonic() - _last_scrape_end < allowance
 
 
 class MetricsHandler(BaseHTTPRequestHandler):
@@ -442,12 +479,15 @@ class MetricsHandler(BaseHTTPRequestHandler):
             self.send_response(404)
             self.end_headers()
             return
+        status = 200
         if self.path == "/healthz":
-            body = b"ok\n"
+            ok = healthy()
+            status = 200 if ok else 503
+            body = b"ok\n" if ok else b"polling loop stalled\n"
         else:
             with _lock:
                 body = _metrics_body.encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -464,6 +504,8 @@ def main() -> None:
     log.info("Scraping %s every %ds", CFG.modem_url, CFG.scrape_interval)
     if CFG.loki_url:
         log.info("Pushing the modem event log to %s", CFG.loki_url)
+        if CFG.loki_username and not CFG.loki_url.startswith("https://"):
+            log.warning("loki_username is set but loki_url isn't HTTPS: the credentials are sent unencrypted")
     else:
         log.info("No loki_url set, not pushing the modem event log")
     Thread(target=scrape_loop, daemon=True).start()

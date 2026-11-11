@@ -18,6 +18,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import urllib.error
 import urllib.request
 
 import yaml
@@ -114,14 +115,21 @@ def write(config: str) -> bool:
     return True
 
 
-def reload_prometheus() -> None:
+def reload_prometheus() -> bool:
+    """Returns False if the reload request didn't succeed. An HTTP error
+    means Prometheus rejected the new config or rules (it says why in its
+    log), which retrying won't fix."""
     req = urllib.request.Request(RELOAD_URL, data=b"", method="POST")
     try:
         with urllib.request.urlopen(req, timeout=10):
             pass
         log.info("Prometheus reloaded")
+    except urllib.error.HTTPError as e:
+        log.error("Prometheus rejected the reload (see its log): %s", e)
     except Exception as e:  # Prometheus may still be starting
-        log.warning("Could not reload Prometheus: %s", e)
+        log.warning("Could not reach Prometheus to reload it, will retry: %s", e)
+        return False
+    return True
 
 
 def build() -> str:
@@ -146,13 +154,15 @@ def once() -> int:
 def watch() -> int:
     last_targets = None
     last_rules = fingerprint(RULES_DIR)
+    # Carried across polls, so a reload that couldn't reach Prometheus is
+    # retried even if nothing else changes.
+    reload = False
     while True:
-        reload = False
         targets = fingerprint(TARGETS_DIR)
         if targets != last_targets:
             last_targets = targets
             try:
-                reload = write(build())
+                reload = write(build()) or reload
             except Exception as e:
                 log.error("Keeping the current config, the new one is invalid:\n%s", e)
         rules = fingerprint(RULES_DIR)
@@ -161,9 +171,7 @@ def watch() -> int:
             log.info("Rules changed in %s", RULES_DIR)
             reload = True
         if reload:
-            # Prometheus keeps its current config and rules if this fails,
-            # and logs why.
-            reload_prometheus()
+            reload = not reload_prometheus()
         time.sleep(POLL_SECONDS)
 
 
