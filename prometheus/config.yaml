@@ -1,26 +1,36 @@
 ---
 name: Prometheus
-version: dev
+version: v3.16.0-aaroncarson.1
 slug: prometheus
 description: Cloud native metrics
-url: https://github.com/hassio-addons/addon-prometheus
-codenotary: codenotary@frenck.dev
-startup: services
-ingress: true
-ingress_port: 9090
-ingress_entry: graph
-init: false
-panel_icon: mdi:chart-timeline
-panel_title: Prometheus
+url: https://github.com/caraar12345/home-assistant-addons/tree/main/prometheus
 arch:
   - aarch64
   - amd64
-  - armv7
+image: ghcr.io/caraar12345/ha-addon-prometheus
+startup: services
+init: false
+ingress: true
+ingress_port: 9090
+ingress_entry: query
+panel_icon: mdi:chart-timeline
+panel_title: Prometheus
 hassio_api: true
 homeassistant_api: true
 map:
-  - share:rw
+  - type: share
+    read_only: false
 ports:
   9090/tcp: null
-ports_description:
-  9090/tcp: Not required for Ingress
+watchdog: http://[HOST]:[PORT:9090]/-/healthy
+options:
+  log_level: info
+  retention_time: 15d
+  env_vars: []
+schema:
+  log_level: list(debug|info|warn|error)?
+  retention_time: match(^([0-9]+(y|w|d|h|m|s|ms))+$)?
+  retention_size: match(^[0-9]+(B|KB|MB|GB|TB|PB|EB)$)?
+  env_vars:
+    - name: match(^[A-Za-z_][A-Za-z0-9_]*$)
+      value: str

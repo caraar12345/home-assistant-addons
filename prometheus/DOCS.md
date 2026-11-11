@@ -1,131 +1,84 @@
-# Home Assistant Community Add-on: Prometheus
+# Prometheus
 
-....
+[Prometheus](https://prometheus.io) time-series database and monitoring
+system, with a pre-configured scrape job for Home Assistant.
+
+This is a fork of the unmaintained
+[Home Assistant Community Add-on](https://github.com/hassio-addons/addon-prometheus)
+(last updated for Prometheus 2.40), updated to Prometheus 3.
 
 ## Installation
 
-The installation of this add-on is pretty straightforward and not different in
-comparison to installing any other Home Assistant add-on.
+1. Add this repository to Home Assistant's add-on store.
+1. Install the "Prometheus" add-on and start it.
+1. Open the web UI from the sidebar (it works through Ingress).
 
-1. Search for the "Prometheus" add-on in the Supervisor add-on store.
-1. Install the "Prometheus" add-on.
-1. Start the "Prometheus" add-on.
-1. Check the logs of the "Prometheus" to see if everything went well.
-1. Open the Web UI.
+## Scraping Home Assistant
 
-**Note**: The addon supports both Ingress and direct access, this is the default
+The `home-assistant` job scrapes `/api/prometheus` through the Supervisor
+using the add-on's own token, so no long-lived access token is needed. Turn
+on Home Assistant's
+[Prometheus integration](https://www.home-assistant.io/integrations/prometheus/)
+by adding this to `configuration.yaml`:
 
-## Configuration
+```yaml
+prometheus:
+```
 
-There are no configuration options for the addon.
+## Adding scrape targets
 
-To add additional scrape targets you need to create a file per target in /share/prometheus/targets.
-
-Example:
+Put one file per job in `/share/prometheus/targets/` (`.yaml` or `.yml`). A
+file can hold a single scrape job, or a list of them:
 
 ```yaml
 ---
-job_name: "octoprint"
+job_name: octoprint
 scrape_interval: 5s
-metrics_path: "/plugin/prometheus_exporter/metrics"
+metrics_path: /plugin/prometheus_exporter/metrics
 params:
   apikey: ["VERYSECRETAPIKEY"]
 static_configs:
   - targets: ["octoprint.example.org:5000"]
 ```
 
-**Note**: _This is just an example, don't copy and paste it! Create your own!_
+The add-on watches that directory. When a file changes, it rebuilds the
+config, checks it with `promtool` and reloads Prometheus. If the result is
+invalid (bad YAML, a duplicate `job_name`, an unknown field), it keeps the
+current config and logs the error. At start-up, invalid targets are skipped
+and only the built-in jobs run.
 
-The job names `home-assistant` and `prometheus` are already defined by default.
-For the `homeassistant` target you must add add the following to
-the Home Assistant configuration:
+The `prometheus` and `home-assistant` job names are already in use.
 
-```yaml
-prometheus:
-```
+## Rules
 
-Rules can be created under `/share/prometheus/rules/`
+Recording and alerting rules go in `/share/prometheus/rules/` (`*.yaml` or
+`*.yml`). The add-on reloads Prometheus when a rule file changes. If a rule
+file is invalid, Prometheus keeps the rules it already has and logs the
+error.
 
-The addon will reload the configuration if a valid configuration is available.
-If not it will log errors in the addon log
+## Options
 
-## Grafana
+| Option | Default | Description |
+| --- | --- | --- |
+| `log_level` | `info` | `debug`, `info`, `warn` or `error`. |
+| `retention_time` | `15d` | How long to keep data (e.g. `30d`, `8w`, `1y`). |
+| `retention_size` | | Optional size cap for stored data (e.g. `10GB`); the oldest blocks are removed first. |
+| `env_vars` | `[]` | Extra environment variables for Prometheus, as `name`/`value` pairs. |
 
-Grafana can use prometheus as a datasource, to configure this go to grafana
-and add a datasource.
-The hostname to connect to is depending on the release you installed.
-For stable this is `http://a0d7b954-prometheus:9090`
+## Using Prometheus from Grafana
 
-## Known issues and limitations
+Add a Prometheus data source pointing at `http://<hostname>:9090`, where
+`<hostname>` is shown on the add-on's info page (it looks like
+`xxxxxxxx-prometheus`).
 
-- Job name must be unique, but this has to be enforced by the user.
-- no alert manager yet
+## Upgrading from Prometheus 2
 
-## Changelog & Releases
+The Prometheus 3 data format is compatible with 2.x, but this add-on has a
+different slug from the community add-on, so it starts with an empty
+database. Prometheus 3's
+[migration guide](https://prometheus.io/docs/prometheus/latest/migration/)
+covers config changes that might affect your own target files.
 
-This repository keeps a change log using [GitHub's releases][releases]
-functionality.
+## Licence
 
-Releases are based on [Semantic Versioning][semver], and use the format
-of `MAJOR.MINOR.PATCH`. In a nutshell, the version will be incremented
-based on the following:
-
-- `MAJOR`: Incompatible or major changes.
-- `MINOR`: Backwards-compatible new features and enhancements.
-- `PATCH`: Backwards-compatible bugfixes and package updates.
-
-## Support
-
-Got questions?
-
-You have several options to get them answered:
-
-- The [Home Assistant Community Add-ons Discord chat server][discord] for add-on
-  support and feature requests.
-- The [Home Assistant Discord chat server][discord-ha] for general Home
-  Assistant discussions and questions.
-- The Home Assistant [Community Forum][forum].
-- Join the [Reddit subreddit][reddit] in [/r/homeassistant][reddit]
-
-You could also [open an issue here][issue] GitHub.
-
-## Authors & contributors
-
-The original setup of this repository is by [Robbert Müller][mjrider].
-
-For a full list of all authors and contributors,
-check [the contributor's page][contributors].
-
-## License
-
-MIT License
-
-Copyright (c) 2020-2022 Robbert Müller
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-
-[contributors]: https://github.com/hassio-addons/addon-Prometheus/graphs/contributors
-[discord-ha]: https://discord.gg/c5DvZ4e
-[discord]: https://discord.me/hassioaddons
-[forum]: https://example.net
-[mjrider]: https://github.com/mjrider
-[issue]: https://github.com/hassio-addons/addon-prometheus/issues
-[reddit]: https://reddit.com/r/homeassistant
-[releases]: https://github.com/hassio-addons/addon-prometheus/releases
-[semver]: http://semver.org/spec/v2.0.0.htm
+MIT. See [LICENSE.md](LICENSE.md) for the original add-on's copyright.

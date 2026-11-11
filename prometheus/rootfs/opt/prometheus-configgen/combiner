@@ -1,100 +1,178 @@
-import sys
-import asyncio
-import aionotify
-import yaml
+#!/usr/bin/env python3
+"""Build prometheus.yml from the base template plus /share/prometheus/targets.
+
+Each *.yaml / *.yml file in the targets directory holds one scrape job (a
+mapping) or several (a list of mappings). The combined config is checked with
+promtool before it replaces the live one, and Prometheus is then reloaded.
+
+    combiner --once   build and write once (used before Prometheus starts)
+    combiner          build, then rebuild whenever the targets change, and
+                      reload Prometheus whenever the rules change
+"""
+
+import argparse
+import glob
+import logging
 import os
+import subprocess
+import sys
 import tempfile
-import requests
+import time
+import urllib.request
 
-from yamlinclude import YamlIncludeConstructor
+import yaml
 
+TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prometheus.template")
+TARGETS_DIR = os.environ.get("PROMETHEUS_TARGETS_DIR", "/share/prometheus/targets")
+RULES_DIR = os.environ.get("PROMETHEUS_RULES_DIR", "/share/prometheus/rules")
+CONFIG_FILE = os.environ.get("PROMETHEUS_CONFIG_FILE", "/etc/prometheus/prometheus.yml")
+RELOAD_URL = "http://localhost:9090/-/reload"
+POLL_SECONDS = 5
 
-def generateConfig():
-    YamlIncludeConstructor.add_to_loader_class(
-        loader_class=yaml.FullLoader, base_dir="/share/prometheus/"
-    )
-
-    with open("prometheus.template") as f:
-        data = yaml.load(f, Loader=yaml.FullLoader)
-
-    data["scrape_configs"] = (
-        data[".scrape_configs_static"] + data[".scrape_configs_included"]
-    )
-    del data[".scrape_configs_static"]
-    del data[".scrape_configs_included"]
-    return yaml.dump(data, default_flow_style=False, default_style="")
+logging.basicConfig(level=logging.INFO, format="[configgen] %(levelname)s: %(message)s")
+log = logging.getLogger("configgen")
 
 
-def testConfig(config):
-    tmp = None
-    result = False
-    try:
-        tmp = tempfile.NamedTemporaryFile()
-        with open(tmp.name, "w") as f:
-            f.write(config)
-        r = os.system("promtool check config " + tmp.name + "> /dev/null")
-        result = r == 0
-    except:
-        print("Failed to validate")
-        raise
-    if not result:
-        raise Exception("validation error")
-    return result
+def yaml_files(directory: str) -> list[str]:
+    files = glob.glob(os.path.join(directory, "*.yaml")) + glob.glob(os.path.join(directory, "*.yml"))
+    return sorted(files)
 
 
-def writeConfig(config, file):
-    try:
-        with open(file, "w") as f:
-            f.write(config)
-        r = requests.post(url="http://localhost:9090/-/reload", data={})
-    except:
-        print("Exception")
+def target_files() -> list[str]:
+    return yaml_files(TARGETS_DIR)
 
 
-loop = asyncio.get_event_loop()
-paths_to_watch = ["/share/prometheus/targets/"]
-
-lock = asyncio.Lock()
-
-
-async def compile():
-    if lock.locked() == False:
-        await lock.acquire()
+def fingerprint(directory: str) -> tuple:
+    """Changes whenever a file in the directory is added, removed or modified."""
+    out = []
+    for path in yaml_files(directory):
         try:
-            config = generateConfig()
-            testConfig(config)
-            writeConfig(config, "/etc/prometheus/prometheus.yml")
-            print("Compiled")
-        except:
-            pass
-        finally:
-            lock.release()
+            st = os.stat(path)
+        except FileNotFoundError:
+            continue
+        out.append((path, st.st_mtime_ns, st.st_size))
+    return tuple(out)
 
 
-async def watcher():
-    asyncio.create_task(compile())
-    filewatch = aionotify.Watcher()
-    for path in paths_to_watch:
-        filewatch.watch(
-            path,
-            aionotify.Flags.MODIFY | aionotify.Flags.CREATE | aionotify.Flags.DELETE,
-        )
-        print(path)
-    await filewatch.setup(loop)
-    while True:
-        event = await filewatch.get_event()
-        sys.stdout.write("Got event: %s\n" % repr(event))
-        asyncio.create_task(compile())
-    filewatch.close()
+def load_template() -> dict:
+    with open(TEMPLATE, encoding="utf-8") as f:
+        return yaml.safe_load(f)
 
 
-def main():
+def load_targets() -> list[dict]:
+    jobs: list[dict] = []
+    for path in target_files():
+        with open(path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+        if data is None:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError(f"{path}: expected a scrape job mapping, got {type(item).__name__}")
+            jobs.append(item)
+    return jobs
+
+
+def render(jobs: list[dict]) -> str:
+    config = load_template()
+    config["scrape_configs"] = config.get("scrape_configs", []) + jobs
+    return yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
+
+
+def check(config: str) -> None:
+    """Raise with promtool's output if the config is invalid."""
+    with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as tmp:
+        tmp.write(config)
     try:
-        loop.run_until_complete(watcher())
+        # --syntax-only: the base config's credentials file and rule globs are
+        # checked for real by Prometheus itself.
+        result = subprocess.run(
+            ["promtool", "check", "config", "--syntax-only", tmp.name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
     finally:
-        # loop.close()
+        os.unlink(tmp.name)
+    if result.returncode != 0:
+        raise ValueError((result.stdout + result.stderr).strip())
+
+
+def write(config: str) -> bool:
+    """Atomically replace the live config. Returns False if it was unchanged."""
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            if f.read() == config:
+                return False
+    except FileNotFoundError:
         pass
+    tmp = f"{CONFIG_FILE}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(config)
+    os.replace(tmp, CONFIG_FILE)
+    return True
+
+
+def reload_prometheus() -> None:
+    req = urllib.request.Request(RELOAD_URL, data=b"", method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+        log.info("Prometheus reloaded")
+    except Exception as e:  # Prometheus may still be starting
+        log.warning("Could not reload Prometheus: %s", e)
+
+
+def build() -> str:
+    jobs = load_targets()
+    config = render(jobs)
+    check(config)
+    log.info("Built config with %d job(s) from %s", len(jobs), TARGETS_DIR)
+    return config
+
+
+def once() -> int:
+    try:
+        config = build()
+    except Exception as e:
+        log.error("Targets are invalid, starting with the built-in jobs only:\n%s", e)
+        config = render([])
+        check(config)
+    write(config)
+    return 0
+
+
+def watch() -> int:
+    last_targets = None
+    last_rules = fingerprint(RULES_DIR)
+    while True:
+        reload = False
+        targets = fingerprint(TARGETS_DIR)
+        if targets != last_targets:
+            last_targets = targets
+            try:
+                reload = write(build())
+            except Exception as e:
+                log.error("Keeping the current config, the new one is invalid:\n%s", e)
+        rules = fingerprint(RULES_DIR)
+        if rules != last_rules:
+            last_rules = rules
+            log.info("Rules changed in %s", RULES_DIR)
+            reload = True
+        if reload:
+            # Prometheus keeps its current config and rules if this fails,
+            # and logs why.
+            reload_prometheus()
+        time.sleep(POLL_SECONDS)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--once", action="store_true", help="build once and exit")
+    args = parser.parse_args()
+    return once() if args.once else watch()
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

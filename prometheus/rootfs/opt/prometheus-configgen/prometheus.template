@@ -1,38 +1,25 @@
 ---
-# my global config
+# Base configuration. The config generator appends one scrape job for each
+# file in /share/prometheus/targets/ to scrape_configs and writes the result to
+# /etc/prometheus/prometheus.yml.
 global:
-  scrape_interval: 15s # Set the scrape interval to every 15 seconds. Default is every 1 minute.
-  evaluation_interval: 15s # Evaluate rules every 15 seconds. The default is every 1 minute.
-  # scrape_timeout is set to the global default (10s).
+  scrape_interval: 15s
+  evaluation_interval: 15s
 
-# Alertmanager configuration
-alerting:
-  alertmanagers:
-    - static_configs:
-        - targets:
-            # - alertmanager:9093
-
-# Load rules once and periodically evaluate them according to the global 'evaluation_interval'.
 rule_files:
-  - "/share/prometheus/rules/*.yaml"
+  - /share/prometheus/rules/*.yaml
+  - /share/prometheus/rules/*.yml
 
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
 
-.scrape_configs_included: !include targets/*.yaml
-.scrape_configs_static:
-  - job_name: 'home-assistant'
+  # Needs `prometheus:` in Home Assistant's configuration.yaml.
+  - job_name: home-assistant
     scrape_interval: 60s
     metrics_path: /core/api/prometheus
-
-    # Long-Lived Access Token
-    bearer_token_file: '/run/home-assistant.token'
-
-    scheme: http
+    authorization:
+      credentials_file: /run/home-assistant.token
     static_configs:
-    - targets: ['supervisor:80']
-  - job_name: 'prometheus'
-
-    # metrics_path defaults to '/metrics'
-    # scheme defaults to 'http'.
-
-    static_configs:
-    - targets: ['localhost:9090']
+      - targets: ["supervisor:80"]

@@ -45,6 +45,7 @@ env:
     cadvisor
     cloudflare-speedtest
     ma-ingress-proxy
+    prometheus
     scanservjs
 
 permissions:

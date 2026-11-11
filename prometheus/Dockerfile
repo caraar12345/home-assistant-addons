@@ -1,76 +1,63 @@
-ARG BUILD_FROM=ghcr.io/hassio-addons/base:12.2.6
+# https://github.com/hassio-addons/addon-base/releases
+ARG BUILD_FROM=ghcr.io/hassio-addons/base:21.0.11
+# https://github.com/prometheus/prometheus/releases
+ARG PROMETHEUS_VERSION=v3.16.0
+
+# The official image ships static prometheus and promtool binaries for every
+# architecture, so there's nothing to download or unpack per arch here.
+FROM quay.io/prometheus/prometheus:${PROMETHEUS_VERSION} AS prometheus
+
 # hadolint ignore=DL3006
 FROM ${BUILD_FROM}
 
-# Set shell
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
-# Setup base system
-ARG BUILD_ARCH=amd64
-ENV PROMETHEUS_VERSION=2.40.1
-
-# Copy root filesystem
-COPY rootfs /
-
-# hadolint ignore=DL3003
-RUN \
-    ARCH="${BUILD_ARCH}" \
-    && if [ "${BUILD_ARCH}" = "aarch64" ]; then ARCH="arm64"; fi \
-    \
-    && apk --no-cache add \
-        python3=3.10.5-r0 \
-        py3-idna=3.3-r2 \
-        py3-certifi=2021.10.8-r0 \
-        py3-chardet=4.0.0-r3 \
-        py3-yaml=6.0-r0 \
-        py3-urllib3=1.26.9-r0 \
-        py3-requests=2.27.1-r0 \
-    && apk --no-cache add --virtual .builddeps \
-        py-pip=22.1.1-r0 \
-    \
-    && curl -J -L -o /tmp/prometheus.tar.gz \
-        "https://github.com/prometheus/prometheus/releases/download/v${PROMETHEUS_VERSION}/prometheus-${PROMETHEUS_VERSION}.linux-${ARCH}.tar.gz" \
-    && adduser -s /bin/false -D -H prometheus \
-    && cd /tmp \
-    && tar -xvf /tmp/prometheus.tar.gz \
+# python3 and PyYAML for the scrape-config generator (it needs nothing else)
+# hadolint ignore=DL3018
+RUN apk add --no-cache \
+        python3 \
+        py3-yaml \
+    && addgroup -S prometheus \
+    && adduser -S -D -H -h /nonexistent -s /sbin/nologin -G prometheus prometheus \
     && mkdir -p /etc/prometheus \
-    && cp prometheus-${PROMETHEUS_VERSION}.linux-${ARCH}/promtool /usr/local/bin/ \
-    && cp prometheus-${PROMETHEUS_VERSION}.linux-${ARCH}/prometheus /usr/local/bin/ \
-    && cp -R prometheus-${PROMETHEUS_VERSION}.linux-${ARCH}/console_libraries/ /etc/prometheus/ \
-    && cp -R prometheus-${PROMETHEUS_VERSION}.linux-${ARCH}/consoles/ /etc/prometheus/ \
-    && rm -r prometheus-${PROMETHEUS_VERSION}.linux-${ARCH} \
-    && chown -R prometheus:prometheus /etc/prometheus \
-    && pip3 install \
-        --no-cache-dir \
-        --prefer-binary \
-        --find-links "https://wheels.home-assistant.io/alpine-3.15/${BUILD_ARCH}/" \
-        -r /opt/prometheus-configgen/requirements.txt \
-    \
-    && apk --no-cache del .builddeps \
-    && rm -f -r \
-        /tmp/*
+    && chown prometheus:prometheus /etc/prometheus
+
+COPY --from=prometheus /bin/prometheus /bin/promtool /usr/local/bin/
+RUN prometheus --version && promtool --version
+
+COPY rootfs /
+# s6 needs these executable; don't rely on git file modes
+RUN chmod a+x \
+        /etc/cont-init.d/*.sh \
+        /etc/services.d/*/run \
+        /etc/services.d/*/finish \
+        /opt/prometheus-configgen/combiner
 
 # Build arguments
+ARG BUILD_ARCH
 ARG BUILD_DATE
+ARG BUILD_DESCRIPTION
+ARG BUILD_NAME
 ARG BUILD_REF
+ARG BUILD_REPOSITORY
 ARG BUILD_VERSION
 
 # Labels
 LABEL \
-    io.hass.name="Prometheus" \
-    io.hass.description="Cloud native metrics" \
+    io.hass.name="${BUILD_NAME}" \
+    io.hass.description="${BUILD_DESCRIPTION}" \
     io.hass.arch="${BUILD_ARCH}" \
     io.hass.type="addon" \
     io.hass.version=${BUILD_VERSION} \
-    maintainer="Robbert Müller <homeassistant@grols.ch>" \
-    org.opencontainers.image.title="Prometheus" \
-    org.opencontainers.image.description="Cloud native metrics" \
-    org.opencontainers.image.vendor="Home Assistant Community Add-ons" \
-    org.opencontainers.image.authors="Robbert Müller <homeassistant@grols.ch>" \
+    maintainer="caraar12345" \
+    org.opencontainers.image.title="${BUILD_NAME}" \
+    org.opencontainers.image.description="${BUILD_DESCRIPTION}" \
+    org.opencontainers.image.vendor="aaroncarson's Home Assistant Add-ons" \
+    org.opencontainers.image.authors="caraar12345" \
     org.opencontainers.image.licenses="MIT" \
-    org.opencontainers.image.url="https://addons.community" \
-    org.opencontainers.image.source="https://github.com/hassio-addons/addon-prometheus" \
-    org.opencontainers.image.documentation="https://github.com/hassio-addons/addon-prometheus/blob/master/README.md" \
+    org.opencontainers.image.url="https://github.com/caraar12345/home-assistant-addons/tree/main/prometheus" \
+    org.opencontainers.image.source="https://github.com/${BUILD_REPOSITORY}" \
+    org.opencontainers.image.documentation="https://github.com/${BUILD_REPOSITORY}/blob/main/prometheus/DOCS.md" \
     org.opencontainers.image.created=${BUILD_DATE} \
     org.opencontainers.image.revision=${BUILD_REF} \
     org.opencontainers.image.version=${BUILD_VERSION}

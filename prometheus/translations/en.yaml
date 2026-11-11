@@ -1,0 +1,18 @@
+---
+configuration:
+  log_level:
+    name: Log level
+    description: Prometheus log level (debug, info, warn or error).
+  retention_time:
+    name: Retention time
+    description: How long to keep samples, e.g. 15d, 8w or 1y.
+  retention_size:
+    name: Retention size
+    description: >-
+      Maximum size of stored blocks before the oldest are removed, e.g. 10GB.
+      Leave empty for no size limit.
+  env_vars:
+    name: Environment variables
+    description: Extra environment variables to set for Prometheus.
+network:
+  9090/tcp: Prometheus web UI and API (not needed for Ingress)
