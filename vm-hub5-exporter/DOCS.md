@@ -75,6 +75,9 @@ restarts the add-on.
 With `loki_url` set, each poll fetches the modem's event log and pushes
 entries it hasn't sent before, one stream per `priority`. This happens even
 when the metrics requests fail. Entries Loki doesn't accept are retried on
-the next poll. The add-on only remembers what it has sent while it's
-running, so after a restart it sends the whole log again. Loki drops lines
-that are exact duplicates.
+the next poll, except those Loki rejects with a client error (4xx other than
+408 or 429, e.g. "entry too far behind"), which are logged and not retried.
+Entries the Hub logged before it knew the time (timestamps before 2000) are
+pushed with the current time instead. The add-on only remembers what it has
+sent while it's running, so after a restart it sends the whole log again. Loki
+drops lines that are exact duplicates.

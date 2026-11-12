@@ -22,12 +22,13 @@ named by VM_HUB5_EXPORTER_OPTIONS).
 import base64
 import json
 import logging
+import math
 import os
 import ssl
 import time
 import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from threading import Lock, Thread
 
@@ -105,6 +106,21 @@ def _escape(v) -> str:
     return str(v).replace("\\", "\\\\").replace("\n", "\\n").replace('"', '\\"')
 
 
+def _number(v) -> float | int | None:
+    """A sample value the Hub sent, as a number Prometheus accepts, or None if
+    it isn't one (JSON null, a non-numeric string, a list...)."""
+    if isinstance(v, bool):
+        return 1 if v else 0
+    if isinstance(v, str):
+        try:
+            v = float(v)
+        except ValueError:
+            return None
+    if isinstance(v, (int, float)):
+        return v if math.isfinite(v) else None
+    return None
+
+
 class Metrics:
     """Collects samples grouped by metric name, so each metric gets exactly
     one HELP and TYPE line however many label sets it has."""
@@ -113,12 +129,16 @@ class Metrics:
         self._families: dict[str, tuple[str, str, list[str]]] = {}
 
     def add(self, name: str, help_text: str, value, labels: dict | None = None, kind: str = "gauge"):
+        num = _number(value)
+        if num is None:
+            log.debug("Skipping %s sample with non-numeric value %r", name, value)
+            return
         if name not in self._families:
             self._families[name] = (help_text, kind, [])
         label_str = ""
         if labels:
             label_str = "{" + ",".join(f'{k}="{_escape(v)}"' for k, v in labels.items()) + "}"
-        self._families[name][2].append(f"{name}{label_str} {value}")
+        self._families[name][2].append(f"{name}{label_str} {num!r}")
 
     def render(self) -> str:
         lines: list[str] = []
@@ -370,23 +390,38 @@ COLLECTORS = (
 # --- Loki -------------------------------------------------------------------
 
 
-def _ts_ns(entry: dict) -> str:
+# The Hub logs entries from before it has the time with a timestamp near 1970.
+# Loki rejects or misplaces those, so they're pushed with the current time, as
+# are entries whose time can't be parsed.
+MIN_VALID_TS = datetime(2000, 1, 1, tzinfo=timezone.utc).timestamp()
+
+
+def _ts_ns(entry: dict) -> int:
     try:
         # ISO 8601, e.g. "2026-04-24T20:08:58.000Z"
         dt = datetime.fromisoformat(entry["time"].replace("Z", "+00:00"))
-        return str(int(dt.timestamp() * 1e9))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        ts = dt.timestamp()
+        if ts >= MIN_VALID_TS:
+            return int(ts * 1e9)
     except Exception:
-        return str(int(time.time() * 1e9))
+        pass
+    return int(time.time() * 1e9)
 
 
 def push_to_loki(entries: list[dict]) -> bool:
-    """Returns True if Loki accepted the entries."""
+    """Returns True if the entries are done with: Loki accepted them, or
+    rejected them permanently (4xx other than 408/429, which a resend can't
+    fix; Loki still stores the valid entries of a partly rejected batch).
+    False means retry on the next poll."""
     by_priority: dict[str, list] = {}
     for e in entries:
-        by_priority.setdefault(e.get("priority", "unknown"), []).append([_ts_ns(e), e.get("message", "")])
+        by_priority.setdefault(e.get("priority", "unknown"), []).append((_ts_ns(e), e.get("message", "")))
 
+    # Loki wants each stream's values in timestamp order; sort numerically.
     streams = [
-        {"stream": {**CFG.loki_labels, "priority": p}, "values": sorted(v, key=lambda x: x[0])}
+        {"stream": {**CFG.loki_labels, "priority": p}, "values": [[str(ts), msg] for ts, msg in sorted(v)]}
         for p, v in by_priority.items()
     ]
     headers = {"Content-Type": "application/json"}
@@ -402,10 +437,14 @@ def push_to_loki(entries: list[dict]) -> bool:
     try:
         with _loki_opener.open(req, timeout=CFG.request_timeout) as resp:
             if resp.status in (200, 204):
+                log.info("Pushed %d new event log entries to Loki", len(entries))
                 return True
             log.warning("Loki push returned %s", resp.status)
     except urllib.error.HTTPError as e:
         body = e.read(500).decode(errors="replace") if e.fp else ""
+        if 400 <= e.code < 500 and e.code not in (408, 429):
+            log.warning("Loki permanently rejected %d entries, not retrying: %s %s", len(entries), e, body)
+            return True
         log.warning("Failed to push to Loki: %s %s", e, body)
     except Exception as e:
         log.warning("Failed to push to Loki: %s", e)
@@ -415,13 +454,18 @@ def push_to_loki(entries: list[dict]) -> bool:
 def poll_eventlog() -> None:
     entries = fetch("/cablemodem/eventlog").get("eventlog", [])
     new = {}
+    current = set()
     for e in entries:
         key = f"{e.get('time', '')}|{e.get('message', '')}"
+        current.add(key)
         if key not in _seen_log_entries:
             new[key] = e
+    # The Hub's log is bounded, so forget entries that have rolled out of it.
+    # Unsent entries are only added to the set after Loki accepts them below.
+    _seen_log_entries.intersection_update(current)
+    log.debug("Event log has %d entries, %d new, %d remembered as sent", len(current), len(new), len(_seen_log_entries))
     # Only remember entries once Loki has them, so a failed push is retried.
     if new and push_to_loki(list(new.values())):
-        log.info("Pushed %d new event log entries to Loki", len(new))
         _seen_log_entries.update(new)
 
 
