@@ -12,6 +12,7 @@ promtool before it replaces the live one, and Prometheus is then reloaded.
 
 import argparse
 import glob
+import hashlib
 import logging
 import os
 import subprocess
@@ -43,15 +44,32 @@ def target_files() -> list[str]:
     return yaml_files(TARGETS_DIR)
 
 
+# path -> (mtime_ns, size, md5 of contents)
+_hashes: dict[str, tuple[int, int, str]] = {}
+
+
+def file_hash(path: str) -> str:
+    """md5 of the file's contents, re-read only when its mtime or size
+    changes, so polling stays cheap."""
+    st = os.stat(path)
+    cached = _hashes.get(path)
+    if cached and cached[:2] == (st.st_mtime_ns, st.st_size):
+        return cached[2]
+    with open(path, "rb") as f:
+        digest = hashlib.md5(f.read(), usedforsecurity=False).hexdigest()
+    _hashes[path] = (st.st_mtime_ns, st.st_size, digest)
+    return digest
+
+
 def fingerprint(directory: str) -> tuple:
-    """Changes whenever a file in the directory is added, removed or modified."""
+    """Changes when a file in the directory is added or removed, or its
+    contents change. Saving a file without changing it doesn't count."""
     out = []
     for path in yaml_files(directory):
         try:
-            st = os.stat(path)
+            out.append((path, file_hash(path)))
         except FileNotFoundError:
             continue
-        out.append((path, st.st_mtime_ns, st.st_size))
     return tuple(out)
 
 

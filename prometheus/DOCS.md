@@ -52,9 +52,10 @@ The `prometheus` and `home-assistant` job names are already in use.
 ## Rules
 
 Recording and alerting rules go in `/share/prometheus/rules/` (`*.yaml` or
-`*.yml`). The add-on reloads Prometheus when a rule file changes. If a rule
-file is invalid, Prometheus keeps the rules it already has and logs the
-error.
+`*.yml`). The add-on reloads Prometheus when a rule file's contents change
+(saving a file without changing it does nothing). If a rule file is
+invalid, Prometheus keeps the rules it already has and logs the error; fix
+the file and it reloads again.
 
 ## Options
 
