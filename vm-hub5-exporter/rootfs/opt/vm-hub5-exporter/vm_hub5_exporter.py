@@ -238,11 +238,30 @@ def _is_primary(ch: dict, primary: dict) -> bool:
     return False
 
 
+# The Hub 5 reports OFDM/OFDMA power and RxMER in tenths of a dB(mV)
+# (e.g. rxMer 380 = 38.0 dB), unlike SC-QAM/ATDMA which use whole units.
+_TENTHS_CHANNEL_TYPES = {"ofdm", "ofdma"}
+
+
+def _scaled(ch: dict, key: str):
+    """Return ch[key] in dB/dBmV, or None if the hub didn't report it."""
+    v = ch.get(key)
+    if v is None:
+        return None
+    if ch.get("channelType") in _TENTHS_CHANNEL_TYPES:
+        return round(v / 10, 1)
+    return v
+
+
 def _channel_labels(ch: dict) -> dict:
+    # OFDM/OFDMA channels have no single centre frequency in the API
+    # (only channelWidth/firstActiveSubcarrier), so leave the label empty
+    # rather than reporting a bogus 0.
+    freq = ch.get("frequency")
     return {
         "channel_id": str(ch["channelId"]),
         "channel_type": ch.get("channelType", "unknown"),
-        "frequency_hz": str(ch.get("frequency", 0)),
+        "frequency_hz": str(freq) if freq is not None else "",
         "modulation": ch.get("modulation", "unknown"),
     }
 
@@ -253,13 +272,17 @@ def collect_downstream(m: Metrics) -> None:
     for ch in data.get("downstream", {}).get("channels", []):
         labels = _channel_labels(ch)
         m.add(
-            "modem_downstream_power_dBmV", "Downstream channel receive power level in dBmV", ch.get("power", 0), labels
+            "modem_downstream_power_dBmV",
+            "Downstream channel receive power level in dBmV",
+            _scaled(ch, "power"),
+            labels,
         )
-        m.add("modem_downstream_snr_dB", "Downstream channel signal-to-noise ratio in dB", ch.get("snr", 0), labels)
+        # OFDM channels don't report SNR; None is skipped rather than emitted as 0.
+        m.add("modem_downstream_snr_dB", "Downstream channel signal-to-noise ratio in dB", ch.get("snr"), labels)
         m.add(
             "modem_downstream_rx_mer_dB",
             "Downstream channel receive modulation error ratio in dB",
-            ch.get("rxMer", 0),
+            _scaled(ch, "rxMer"),
             labels,
         )
         m.add(
@@ -296,7 +319,9 @@ def collect_upstream(m: Metrics) -> None:
     primary = _primary_channel("upstream")
     for ch in data.get("upstream", {}).get("channels", []):
         labels = _channel_labels(ch)
-        m.add("modem_upstream_power_dBmV", "Upstream channel transmit power level in dBmV", ch.get("power", 0), labels)
+        m.add(
+            "modem_upstream_power_dBmV", "Upstream channel transmit power level in dBmV", _scaled(ch, "power"), labels
+        )
         m.add(
             "modem_upstream_channel_locked",
             "Whether the upstream channel is locked (1=yes, 0=no)",
