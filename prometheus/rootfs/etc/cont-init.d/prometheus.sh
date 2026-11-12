@@ -9,8 +9,14 @@ chown prometheus:prometheus /run/home-assistant.token
 chmod 0400 /run/home-assistant.token
 
 mkdir -p /data/prometheus /share/prometheus/rules /share/prometheus/targets
-chown -R prometheus:prometheus /data/prometheus
+# Walking the whole TSDB on every start is slow, so only do it when needed.
+if [ "$(stat -c %U:%G /data/prometheus)" != "prometheus:prometheus" ]; then
+  chown -R prometheus:prometheus /data/prometheus
+fi
 chown prometheus:prometheus /share/prometheus/rules /share/prometheus/targets
+# The config generator keeps the last valid version of each rule file here.
+mkdir -p /data/prometheus-rules
+chown prometheus:prometheus /data/prometheus-rules
 
 # Build prometheus.yml before Prometheus starts, so it never runs on a config
 # that's missing the user's targets. Falls back to the built-in jobs only if

@@ -6,9 +6,9 @@ global:
   scrape_interval: 15s
   evaluation_interval: 15s
 
-rule_files:
-  - /share/prometheus/rules/*.yaml
-  - /share/prometheus/rules/*.yml
+# The config generator fills in rule_files with the valid files from
+# /share/prometheus/rules/.
+rule_files: []
 
 scrape_configs:
   - job_name: prometheus

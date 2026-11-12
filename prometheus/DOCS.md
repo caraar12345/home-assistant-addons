@@ -52,10 +52,14 @@ The `prometheus` and `home-assistant` job names are already in use.
 ## Rules
 
 Recording and alerting rules go in `/share/prometheus/rules/` (`*.yaml` or
-`*.yml`). The add-on reloads Prometheus when a rule file's contents change
-(saving a file without changing it does nothing). If a rule file is
-invalid, Prometheus keeps the rules it already has and logs the error; fix
-the file and it reloads again.
+`*.yml`). Each file is checked with `promtool check rules` before Prometheus
+sees it. If you save an invalid version, the add-on logs promtool's error and
+Prometheus keeps using the last valid version of that file (across restarts
+too), so a typo never stops Prometheus starting or drops your alerts. A file
+that has never been valid is skipped. Fix the file and it is picked up
+again.
+The add-on reloads Prometheus when a rule file's contents change (saving a
+file without changing it does nothing).
 
 ## Options
 
