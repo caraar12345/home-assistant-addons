@@ -1,0 +1,37 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Prometheus add-on: run the Prometheus server
+# ==============================================================================
+declare -a options
+declare name
+declare value
+
+options+=(--config.file=/etc/prometheus/prometheus.yml)
+options+=(--storage.tsdb.path=/data/prometheus)
+options+=(--web.route-prefix=/)
+# Ingress serves the UI under /api/hassio_ingress/<token>; Prometheus needs
+# that path so the UI's links and assets resolve.
+options+=(--web.external-url="http://localhost:9090$(bashio::app.ingress_entry)/")
+# Lets the config generator reload Prometheus when targets change.
+options+=(--web.enable-lifecycle)
+
+if bashio::config.has_value 'log_level'; then
+  options+=(--log.level="$(bashio::config 'log_level')")
+fi
+if bashio::config.has_value 'retention_time'; then
+  options+=(--storage.tsdb.retention.time="$(bashio::config 'retention_time')")
+fi
+if bashio::config.has_value 'retention_size'; then
+  options+=(--storage.tsdb.retention.size="$(bashio::config 'retention_size')")
+fi
+
+for var in $(bashio::config 'env_vars|keys'); do
+  name=$(bashio::config "env_vars[${var}].name")
+  value=$(bashio::config "env_vars[${var}].value")
+  bashio::log.info "Setting ${name}"
+  export "${name}=${value}"
+done
+
+bashio::log.info 'Starting Prometheus...'
+exec s6-setuidgid prometheus /usr/local/bin/prometheus "${options[@]}"

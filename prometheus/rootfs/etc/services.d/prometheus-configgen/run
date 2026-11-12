@@ -1,0 +1,7 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# Prometheus add-on: rebuild prometheus.yml when /share/prometheus/targets changes
+# ==============================================================================
+bashio::log.info 'Starting Prometheus config generator...'
+exec s6-setuidgid prometheus python3 /opt/prometheus-configgen/combiner

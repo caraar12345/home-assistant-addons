@@ -1,0 +1,7 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# vm-hub5-exporter add-on: run the exporter (it reads /data/options.json itself)
+# ==============================================================================
+bashio::log.info 'Starting vm-hub5-exporter...'
+exec python3 /opt/vm-hub5-exporter/vm_hub5_exporter.py

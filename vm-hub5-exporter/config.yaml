@@ -1,0 +1,31 @@
+---
+name: vm-hub5-exporter
+version: 1.0.0
+slug: vm-hub5-exporter
+description: Prometheus exporter for the Virgin Media (GB) Hub 5 only
+url: https://github.com/caraar12345/home-assistant-addons/tree/main/vm-hub5-exporter
+arch:
+  - aarch64
+  - amd64
+image: ghcr.io/caraar12345/ha-addon-vm-hub5-exporter
+init: false
+ports:
+  9781/tcp: 9781
+watchdog: http://[HOST]:[PORT:9781]/healthz
+options:
+  modem_url: https://192.168.100.1/rest/v1
+  verify_ssl: false
+  scrape_interval: 30
+  request_timeout: 10
+  log_level: info
+schema:
+  modem_url: url
+  verify_ssl: bool
+  scrape_interval: int(5,3600)
+  request_timeout: int(1,120)
+  loki_url: url?
+  loki_username: str?
+  loki_password: password?
+  loki_job: str?
+  loki_host: str?
+  log_level: list(debug|info|warning|error)?

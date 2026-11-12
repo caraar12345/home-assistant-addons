@@ -1,0 +1,330 @@
+#!/usr/bin/env python3
+"""Build prometheus.yml from the base template plus /share/prometheus/targets.
+
+Each *.yaml / *.yml file in the targets directory holds one scrape job (a
+mapping) or several (a list of mappings). The combined config is checked with
+promtool before it replaces the live one, and Prometheus is then reloaded.
+Rule files in the rules directory are checked one by one; invalid ones are
+logged and left out of rule_files.
+
+    combiner --once   build and write once (used before Prometheus starts)
+    combiner          build, then rebuild whenever the targets or rules change,
+                      and reload Prometheus
+"""
+
+import argparse
+import glob
+import hashlib
+import logging
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+import urllib.error
+import urllib.request
+
+import yaml
+
+TEMPLATE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "prometheus.template")
+TARGETS_DIR = os.environ.get("PROMETHEUS_TARGETS_DIR", "/share/prometheus/targets")
+RULES_DIR = os.environ.get("PROMETHEUS_RULES_DIR", "/share/prometheus/rules")
+# The last valid version of each rule file, which is what Prometheus loads.
+RULES_CACHE = os.environ.get("PROMETHEUS_RULES_CACHE", "/data/prometheus-rules")
+CONFIG_FILE = os.environ.get("PROMETHEUS_CONFIG_FILE", "/etc/prometheus/prometheus.yml")
+RELOAD_URL = "http://localhost:9090/-/reload"
+POLL_SECONDS = 5
+
+logging.basicConfig(level=logging.INFO, format="[configgen] %(levelname)s: %(message)s")
+log = logging.getLogger("configgen")
+
+
+# YAML 1.2 core schema. PyYAML implements YAML 1.1, where `no`, `on`, `y`
+# are booleans and `0755` is an octal int, so `env: no` would be re-dumped as
+# `env: false`. Here only true/false are booleans and `yes/no/on/off/y/n`
+# stay strings. Numbers with a leading zero (`0755`, `007`) are deliberately
+# NOT numbers but kept as strings, so a label or path-like value is
+# preserved exactly as written instead of becoming 755 or 493.
+class Yaml12Loader(yaml.SafeLoader):
+    pass
+
+
+Yaml12Loader.yaml_implicit_resolvers = {
+    ch: [
+        (tag, rx)
+        for tag, rx in resolvers
+        if tag not in ("tag:yaml.org,2002:bool", "tag:yaml.org,2002:int", "tag:yaml.org,2002:float")
+    ]
+    for ch, resolvers in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+Yaml12Loader.add_implicit_resolver(
+    "tag:yaml.org,2002:bool", re.compile(r"^(?:true|True|TRUE|false|False|FALSE)$"), list("tTfF")
+)
+Yaml12Loader.add_implicit_resolver(
+    "tag:yaml.org,2002:int", re.compile(r"^(?:[-+]?(?:0|[1-9][0-9]*)|0o[0-7]+|0x[0-9a-fA-F]+)$"), list("-+0123456789")
+)
+Yaml12Loader.add_implicit_resolver(
+    "tag:yaml.org,2002:float",
+    re.compile(
+        r"^(?:[-+]?(?:0|[1-9][0-9]*)(?:\.[0-9]*)?(?:[eE][-+]?[0-9]+)?|[-+]?\.[0-9]+(?:[eE][-+]?[0-9]+)?"
+        r"|[-+]?\.(?:inf|Inf|INF)|\.(?:nan|NaN|NAN))$"
+    ),
+    list("-+0123456789."),
+)
+
+# (kind, path) -> stat key at the time it was logged, so a problem with a
+# file is logged once and again only after the file changes.
+_logged: dict[tuple[str, str], object] = {}
+
+
+def _stat_key(path: str) -> object:
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    return (st.st_mtime_ns, st.st_size, st.st_ctime_ns, st.st_ino, st.st_mode)
+
+
+def report(kind: str, path: str, message: str) -> None:
+    key = _stat_key(path)
+    if (kind, path) not in _logged or _logged[(kind, path)] != key:
+        _logged[(kind, path)] = key
+        log.error("%s: %s", path, message)
+
+
+def clear(kind: str, path: str) -> None:
+    _logged.pop((kind, path), None)
+
+
+def yaml_files(directory: str) -> list[str]:
+    """*.yaml / *.yml regular files (or symlinks to them) in the directory."""
+    out = []
+    for path in sorted(glob.glob(os.path.join(directory, "*.yaml")) + glob.glob(os.path.join(directory, "*.yml"))):
+        if os.path.isfile(path):
+            clear("type", path)
+            out.append(path)
+        else:
+            report("type", path, "ignored, not a regular file")
+    return out
+
+
+def target_files() -> list[str]:
+    return yaml_files(TARGETS_DIR)
+
+
+# path -> (mtime_ns, size, ctime_ns, inode, md5 of contents)
+_hashes: dict[str, tuple[int, int, int, int, str]] = {}
+
+
+def file_hash(path: str) -> str:
+    """md5 of the file's contents, re-read only when its mtime, size, ctime
+    or inode changes, so polling stays cheap. ctime can't be preserved by
+    `touch -r`, `cp -p` or rsync, so a same-size edit with the old mtime is
+    still noticed."""
+    st = os.stat(path)
+    key = (st.st_mtime_ns, st.st_size, st.st_ctime_ns, st.st_ino)
+    cached = _hashes.get(path)
+    if cached and cached[:4] == key:
+        return cached[4]
+    with open(path, "rb") as f:
+        digest = hashlib.md5(f.read(), usedforsecurity=False).hexdigest()
+    _hashes[path] = (*key, digest)
+    return digest
+
+
+def fingerprint(directory: str) -> tuple:
+    """Changes when a file in the directory is added or removed, or its
+    contents change. Saving a file without changing it doesn't count.
+    Files that can't be read are left out (and logged once)."""
+    out = []
+    for path in yaml_files(directory):
+        try:
+            out.append((path, file_hash(path)))
+            clear("read", path)
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            report("read", path, f"ignored, cannot read it: {e}")
+    return tuple(out)
+
+
+def load_template() -> dict:
+    with open(TEMPLATE, encoding="utf-8") as f:
+        return yaml.safe_load(f)
+
+
+def load_targets() -> list[dict]:
+    jobs: list[dict] = []
+    for path in target_files():
+        try:
+            with open(path, "rb") as f:
+                data = yaml.load(f, Loader=Yaml12Loader)  # noqa: S506 (a SafeLoader subclass)
+        except FileNotFoundError:
+            continue
+        except OSError as e:
+            report("read", path, f"ignored, cannot read it: {e}")
+            continue
+        if data is None:
+            continue
+        items = data if isinstance(data, list) else [data]
+        for item in items:
+            if not isinstance(item, dict):
+                raise ValueError(f"{path}: expected a scrape job mapping, got {type(item).__name__}")
+            jobs.append(item)
+    return jobs
+
+
+def valid_rules() -> list[str]:
+    """Paths of the rule files Prometheus should load: a copy of the last
+    version of each file that promtool accepted. An invalid edit is logged
+    (once until it changes) and the previous valid version stays in use, so
+    a typo can't stop Prometheus starting or silently drop alerts. A file
+    that has never been valid is left out."""
+    os.makedirs(RULES_CACHE, exist_ok=True)
+    out, names = [], set()
+    for path in yaml_files(RULES_DIR):
+        name = os.path.basename(path)
+        names.add(name)
+        cached = os.path.join(RULES_CACHE, name)
+        result = subprocess.run(["promtool", "check", "rules", path], capture_output=True, text=True, check=False)
+        if result.returncode == 0:
+            clear("rules", path)
+            tmp = f"{cached}.tmp"
+            shutil.copyfile(path, tmp)
+            os.replace(tmp, cached)
+            out.append(cached)
+            continue
+        error = (result.stdout + result.stderr).strip()
+        if os.path.exists(cached):
+            report("rules", path, "invalid rule file, keeping its last valid version:\n" + error)
+            out.append(cached)
+        else:
+            report("rules", path, "invalid rule file, ignored:\n" + error)
+    # Files removed from the rules directory stop being loaded.
+    for name in os.listdir(RULES_CACHE):
+        if name not in names:
+            os.unlink(os.path.join(RULES_CACHE, name))
+    return out
+
+
+def render(jobs: list[dict], rules: list[str]) -> str:
+    config = load_template()
+    config["rule_files"] = rules
+    config["scrape_configs"] = config.get("scrape_configs", []) + jobs
+    return yaml.safe_dump(config, default_flow_style=False, sort_keys=False)
+
+
+def check(config: str) -> None:
+    """Raise with promtool's output if the config is invalid. Referenced
+    files (rule files, credentials_file) are checked too."""
+    with tempfile.NamedTemporaryFile("w", suffix=".yml", delete=False) as tmp:
+        tmp.write(config)
+    try:
+        result = subprocess.run(
+            ["promtool", "check", "config", tmp.name],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    finally:
+        os.unlink(tmp.name)
+    if result.returncode != 0:
+        raise ValueError((result.stdout + result.stderr).strip())
+
+
+def write(config: str) -> bool:
+    """Atomically replace the live config. Returns False if it was unchanged."""
+    try:
+        with open(CONFIG_FILE, encoding="utf-8") as f:
+            if f.read() == config:
+                return False
+    except FileNotFoundError:
+        pass
+    tmp = f"{CONFIG_FILE}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(config)
+    os.replace(tmp, CONFIG_FILE)
+    return True
+
+
+def reload_prometheus() -> bool:
+    """Returns False if the reload request didn't succeed. An HTTP error
+    means Prometheus rejected the new config or rules (it says why in its
+    log), which retrying won't fix."""
+    req = urllib.request.Request(RELOAD_URL, data=b"", method="POST")
+    try:
+        with urllib.request.urlopen(req, timeout=10):
+            pass
+        log.info("Prometheus reloaded")
+    except urllib.error.HTTPError as e:
+        log.error("Prometheus rejected the reload (see its log): %s", e)
+    except Exception as e:  # Prometheus may still be starting
+        log.warning("Could not reach Prometheus to reload it, will retry: %s", e)
+        return False
+    return True
+
+
+def build(rules: list[str]) -> str:
+    jobs = load_targets()
+    config = render(jobs, rules)
+    check(config)
+    log.info("Built config with %d job(s) and %d rule file(s)", len(jobs), len(rules))
+    return config
+
+
+def once() -> int:
+    rules = valid_rules()
+    try:
+        config = build(rules)
+    except Exception as e:
+        log.error("Targets are invalid, starting with the built-in jobs only:\n%s", e)
+        config = render([], rules)
+        check(config)
+    write(config)
+    return 0
+
+
+def watch() -> int:
+    last_targets = None
+    last_rules = None
+    # Carried across polls, so a reload that couldn't reach Prometheus is
+    # retried even if nothing else changes.
+    reload = False
+    last_error = None
+    while True:
+        try:
+            targets = fingerprint(TARGETS_DIR)
+            rules = fingerprint(RULES_DIR)
+            if targets != last_targets or rules != last_rules:
+                if last_rules is not None and rules != last_rules:
+                    log.info("Rules changed in %s", RULES_DIR)
+                    reload = True
+                last_targets, last_rules = targets, rules
+                try:
+                    # The rendered rule_files list only changes when a rule
+                    # file is added, removed or becomes (in)valid; edits to a
+                    # valid file are picked up by the reload above.
+                    reload = write(build(valid_rules())) or reload
+                except Exception as e:
+                    log.error("Keeping the current config, the new one is invalid:\n%s", e)
+            if reload:
+                reload = not reload_prometheus()
+            last_error = None
+        except Exception as e:  # nothing may kill the loop and halt the add-on
+            if repr(e) != last_error:
+                last_error = repr(e)
+                log.exception("Unexpected error, carrying on")
+        time.sleep(POLL_SECONDS)
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--once", action="store_true", help="build once and exit")
+    args = parser.parse_args()
+    return once() if args.once else watch()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

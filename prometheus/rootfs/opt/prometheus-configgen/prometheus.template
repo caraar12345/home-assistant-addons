@@ -1,0 +1,25 @@
+---
+# Base configuration. The config generator appends one scrape job for each
+# file in /share/prometheus/targets/ to scrape_configs and writes the result to
+# /etc/prometheus/prometheus.yml.
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# The config generator fills in rule_files with the valid files from
+# /share/prometheus/rules/.
+rule_files: []
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Needs `prometheus:` in Home Assistant's configuration.yaml.
+  - job_name: home-assistant
+    scrape_interval: 60s
+    metrics_path: /core/api/prometheus
+    authorization:
+      credentials_file: /run/home-assistant.token
+    static_configs:
+      - targets: ["supervisor:80"]
