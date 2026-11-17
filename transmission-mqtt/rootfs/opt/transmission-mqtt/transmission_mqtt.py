@@ -22,6 +22,7 @@ which the add-on's run script fills in from Home Assistant's MQTT service.
 """
 
 import base64
+import http.client
 import json
 import logging
 import os
@@ -198,7 +199,7 @@ class Transmission:
                 if err.code == 401:
                     raise TransmissionError("Transmission refused the username or password") from err
                 raise TransmissionError(f"{method}: HTTP {err.code}") from err
-            except (urllib.error.URLError, OSError, ValueError) as err:
+            except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as err:
                 raise TransmissionError(f"{method}: {err}") from err
             if reply.get("result") != "success":
                 raise TransmissionError(f"{method}: {reply.get('result')}")
@@ -342,20 +343,25 @@ class Bridge:
         self.t_available = f"{base}/availability"
         self.t_event = f"{base}/event"
 
-        self.client = mqtt.Client(
-            mqtt.CallbackAPIVersion.VERSION2, client_id=f"transmission-mqtt-{cfg.node_id}"
-        )
+        client_id = f"transmission-mqtt-{cfg.node_id}"
+        # Alpine packages paho-mqtt 1.6; 2.x needs the callback API named.
+        if hasattr(mqtt, "CallbackAPIVersion"):
+            self.client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=client_id)
+            self.client.on_connect = self._on_connect
+            self.client.on_disconnect = self._on_disconnect
+        else:
+            self.client = mqtt.Client(client_id=client_id)
+            self.client.on_connect = lambda c, u, flags, rc: self._on_connect(c, u, flags, rc, None)
+            self.client.on_disconnect = lambda c, u, rc: self._on_disconnect(c, u, None, rc, None)
         if cfg.mqtt_username:
             self.client.username_pw_set(cfg.mqtt_username, cfg.mqtt_password)
         self.client.will_set(self.t_bridge, "offline", qos=1, retain=True)
-        self.client.on_connect = self._on_connect
         self.client.on_message = self._on_message
-        self.client.on_disconnect = self._on_disconnect
         self.client.reconnect_delay_set(1, 60)
 
     # MQTT callbacks run on paho's thread: hand work to the main loop.
     def _on_connect(self, client, userdata, flags, reason_code, properties):
-        if reason_code.is_failure:
+        if reason_code != 0:  # a ReasonCode (2.x) or an int (1.x)
             log.error("MQTT connection refused: %s", reason_code)
             return
         log.info("Connected to MQTT at %s:%s", self.cfg.mqtt_host, self.cfg.mqtt_port)
@@ -409,6 +415,8 @@ class Bridge:
 
     def send_discovery(self) -> None:
         topic = f"{self.cfg.discovery_prefix}/device/{self.cfg.node_id}/config"
+        if not self.client.is_connected():
+            return  # on_connect asks for discovery again
         self.client.publish(topic, json.dumps(self.discovery()), qos=1, retain=True)
         self.publish_discovery = False
         log.debug("Published discovery to %s", topic)
@@ -420,7 +428,10 @@ class Bridge:
             payload = json.dumps(value)
         else:
             payload = str(value)
-        self.client.publish(topic, payload, qos=1, retain=retain)
+        # Don't let paho queue states while the broker is away: on_connect
+        # republishes discovery, availability and every state anyway.
+        if self.client.is_connected():
+            self.client.publish(topic, payload, qos=1, retain=retain)
 
     def set_available(self, ok: bool) -> None:
         if ok != self.available:
@@ -542,6 +553,8 @@ def main() -> None:
     logging.basicConfig(level=cfg.log_level, format="%(asctime)s %(levelname)s %(message)s")
     log.info("transmission-mqtt %s: %s as device %r (topics under %s)",
              VERSION, cfg.url, cfg.name, cfg.base_topic)
+    if (cfg.username or cfg.password) and cfg.url.startswith("http://"):
+        log.warning("Sending the Transmission username and password unencrypted: turn on ssl if the server supports HTTPS")
     Bridge(cfg).run()
 
 

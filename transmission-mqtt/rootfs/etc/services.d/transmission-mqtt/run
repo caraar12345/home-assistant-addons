@@ -4,8 +4,9 @@
 # transmission-mqtt add-on: run the bridge (it reads /data/options.json itself)
 # ==============================================================================
 # The broker comes from Home Assistant's MQTT service unless the options name
-# one; the bridge prefers the options over these.
-if bashio::services.available mqtt; then
+# one. Its credentials are only for that broker, so they're not passed on
+# when mqtt_host points somewhere else.
+if ! bashio::config.has_value 'mqtt_host' && bashio::services.available mqtt; then
   MQTT_HOST=$(bashio::services mqtt host)
   MQTT_PORT=$(bashio::services mqtt port)
   MQTT_USERNAME=$(bashio::services mqtt username)

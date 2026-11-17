@@ -58,12 +58,12 @@ the app to have it rediscovered.
 | `path` | `/transmission/rpc` | RPC path. |
 | `ssl` | `false` | Use HTTPS. |
 | `verify_ssl` | `true` | Check the server's certificate over HTTPS. |
-| `username` / `password` | | RPC credentials, if authentication is on. |
+| `username` / `password` | | RPC credentials, if authentication is on. Without `ssl` they're sent unencrypted (HTTP basic auth), and the app logs a warning. |
 | `scan_interval` | `120` | Seconds between polls (the integration's default). A switch change polls straight away. |
 | `request_timeout` | `10` | Seconds to wait for each request. |
 | `limit` | `10` | Torrents listed in each `torrent_info` attribute. |
 | `order` | `oldest_first` | `oldest_first`, `newest_first`, `best_ratio_first` or `worst_ratio_first`. |
-| `mqtt_host`, `mqtt_port`, `mqtt_username`, `mqtt_password` | | A broker to use instead of the one Home Assistant provides. |
+| `mqtt_host`, `mqtt_port`, `mqtt_username`, `mqtt_password` | | A broker to use instead of the one Home Assistant provides. With `mqtt_host` set, only these are used (no username means an anonymous connection). |
 | `discovery_prefix` | `homeassistant` | MQTT discovery prefix. |
 | `log_level` | `info` | `debug`, `info`, `warning` or `error`. |
 
