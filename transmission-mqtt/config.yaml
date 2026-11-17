@@ -1,0 +1,44 @@
+---
+name: Transmission MQTT
+version: 1.0.0
+slug: transmission-mqtt
+description: >-
+  Transmission 3.x (and later) as Home Assistant entities over MQTT, the
+  same ones the core Transmission integration (4.0+ only) creates
+url: https://github.com/caraar12345/home-assistant-addons/tree/main/transmission-mqtt
+arch:
+  - aarch64
+  - amd64
+image: ghcr.io/caraar12345/ha-addon-transmission-mqtt
+init: false
+services:
+  - mqtt:want
+options:
+  name: Transmission
+  port: 9091
+  path: /transmission/rpc
+  ssl: false
+  verify_ssl: true
+  scan_interval: 120
+  limit: 10
+  order: oldest_first
+  log_level: info
+schema:
+  name: str
+  host: str
+  port: port
+  path: str
+  ssl: bool
+  verify_ssl: bool
+  username: str?
+  password: password?
+  scan_interval: int(10,3600)
+  request_timeout: int(1,120)?
+  limit: int(1,500)
+  order: list(oldest_first|newest_first|best_ratio_first|worst_ratio_first)
+  mqtt_host: str?
+  mqtt_port: port?
+  mqtt_username: str?
+  mqtt_password: password?
+  discovery_prefix: str?
+  log_level: list(debug|info|warning|error)?

@@ -1,0 +1,60 @@
+---
+configuration:
+  name:
+    name: Device name
+    description: >-
+      Name of the device in Home Assistant. Entity IDs and MQTT topics are
+      made from it, so changing it later creates a new device.
+  host:
+    name: Host
+    description: Hostname or IP address of the Transmission server.
+  port:
+    name: Port
+    description: Port of Transmission's RPC server (9091 by default).
+  path:
+    name: RPC path
+    description: Path of the RPC endpoint, /transmission/rpc unless your server moved it.
+  ssl:
+    name: Use HTTPS
+    description: Connect to Transmission over HTTPS.
+  verify_ssl:
+    name: Verify TLS certificate
+    description: Check the server's certificate when using HTTPS.
+  username:
+    name: Username
+    description: Transmission RPC username, if authentication is on.
+  password:
+    name: Password
+    description: Transmission RPC password.
+  scan_interval:
+    name: Scan interval
+    description: Seconds between polls of Transmission (Home Assistant's integration uses 120).
+  request_timeout:
+    name: Request timeout
+    description: Seconds to wait for each request to Transmission (default 10).
+  limit:
+    name: Torrents listed
+    description: How many torrents each torrent count sensor lists in its torrent_info attribute.
+  order:
+    name: Torrent order
+    description: Order of the torrents in the torrent_info attribute.
+  mqtt_host:
+    name: MQTT broker
+    description: >-
+      Leave empty to use the broker Home Assistant's MQTT integration
+      provides (the Mosquitto broker app).
+  mqtt_port:
+    name: MQTT port
+    description: Port of the MQTT broker set above (default 1883).
+  mqtt_username:
+    name: MQTT username
+    description: Username for the MQTT broker set above.
+  mqtt_password:
+    name: MQTT password
+    description: Password for the MQTT broker set above.
+  discovery_prefix:
+    name: Discovery prefix
+    description: MQTT discovery prefix Home Assistant listens on (default homeassistant).
+  log_level:
+    name: Log level
+    description: How much the app logs.

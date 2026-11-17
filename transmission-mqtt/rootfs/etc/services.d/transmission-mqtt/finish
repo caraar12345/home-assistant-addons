@@ -1,0 +1,12 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# transmission-mqtt add-on: take down the add-on if the bridge crashes
+# ==============================================================================
+if [[ "${1}" -ne 0 ]] && [[ "${1}" -ne 256 ]]; then
+  bashio::log.warning "transmission-mqtt crashed, halting add-on"
+  echo "${1}" > /run/s6-linux-init-container-results/exitcode
+  exec /run/s6/basedir/bin/halt
+fi
+
+bashio::log.info "transmission-mqtt stopped, restarting..."

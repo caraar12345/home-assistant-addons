@@ -12,3 +12,6 @@ promtail/testConfig/*
 !/ma-ingress-proxy/rootfs/etc/caddy/**
 !/ma-ingress-proxy/rootfs/etc/services.d/caddy/
 !/ma-ingress-proxy/rootfs/etc/services.d/caddy/**
+# Python bytecode from running scripts locally
+__pycache__/
+*.pyc
