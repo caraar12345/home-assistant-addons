@@ -76,10 +76,6 @@ and fails the PR otherwise, that:
 expected, and slow; adding an add-on to `ADDONS` triggers it too. Keep
 unrelated workflow edits out of add-on PRs.
 
-The new GHCR package is private by default. Home Assistant can only pull it
-once it's public, which the owner sets on GitHub after the first publish: say
-so in the PR.
-
 ## Versions and releases
 
 - `config.yaml`'s `version` is the image tag Home Assistant checks for
