@@ -1,6 +1,6 @@
 ---
 name: Transmission MQTT
-version: 1.0.0
+version: 1.0.1
 slug: transmission-mqtt
 description: >-
   Transmission 3.x (and later) as Home Assistant entities over MQTT, the
