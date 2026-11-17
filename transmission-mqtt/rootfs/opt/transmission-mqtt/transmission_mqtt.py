@@ -512,8 +512,12 @@ class Bridge:
         self.flush_events()
 
     def flush_events(self) -> None:
+        # Publish directly rather than through pub(): if the connection drops
+        # after this check, paho still queues a QoS 1 message and sends it on
+        # reconnect, so an event taken off the buffer is never skipped.
         while self.pending_events and self.client.is_connected():
-            self.pub(self.t_event, self.pending_events.popleft(), retain=False)
+            self.client.publish(self.t_event, json.dumps(self.pending_events[0]), qos=1, retain=False)
+            self.pending_events.popleft()
 
     # Commands
     def command(self, key: str, payload: str) -> None:
