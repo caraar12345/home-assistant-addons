@@ -32,6 +32,7 @@ import re
 import ssl
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
@@ -166,6 +167,47 @@ class TransmissionError(Exception):
     pass
 
 
+class _KeepPost(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect as the same POST, on the same host only.
+
+    urllib turns a redirected POST into a GET without its body, which a
+    proxy in front of Transmission answers with 405. Re-POST instead, but
+    never send the credentials to a different host or from HTTPS to HTTP.
+    """
+
+    def __init__(self, on_move):
+        self.on_move = on_move
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
+        if code not in (301, 302, 303, 307, 308) or new.hostname != old.hostname:
+            return None
+        if old.scheme == "https" and new.scheme != "https":
+            return None
+        self.on_move(newurl)
+        # Leave Host out so urllib writes the new one (the port may differ).
+        headers = {k: v for k, v in req.header_items() if k.lower() != "host"}
+        return urllib.request.Request(newurl, data=req.data, headers=headers,
+                                      method=req.get_method())
+
+
+def _describe(err: urllib.error.HTTPError) -> str:
+    """What answered: the URL, the server and the start of its reply."""
+    parts = [f"HTTP {err.code} from {err.geturl()}"]
+    for name in ("Server", "Allow"):
+        if err.headers.get(name):
+            parts.append(f"{name}: {err.headers[name]}")
+    try:
+        body = err.read(300).decode("utf-8", "replace")
+    except Exception:  # noqa: BLE001 - only decoration for the message
+        body = ""
+    body = re.sub(r"<[^>]+>", " ", body)
+    body = " ".join(body.split())[:160]
+    if body:
+        parts.append(f"body: {body!r}")
+    return ", ".join(parts)
+
+
 class Transmission:
     """A minimal Transmission RPC client (standard library only)."""
 
@@ -177,36 +219,58 @@ class Transmission:
         if cfg.username or cfg.password:
             token = base64.b64encode(f"{cfg.username}:{cfg.password}".encode()).decode()
             self.auth = f"Basic {token}"
-        self.ssl_ctx = ssl.create_default_context()
+        ssl_ctx = ssl.create_default_context()
         if not cfg.verify_ssl:
-            self.ssl_ctx.check_hostname = False
-            self.ssl_ctx.verify_mode = ssl.CERT_NONE
+            ssl_ctx.check_hostname = False
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+        self.moved_to = ""
+        self.opener = urllib.request.build_opener(
+            urllib.request.HTTPSHandler(context=ssl_ctx), _KeepPost(self._moved))
+
+    def _moved(self, newurl: str) -> None:
+        self.moved_to = newurl
 
     def call(self, method: str, arguments: dict | None = None) -> dict:
         body = json.dumps({"method": method, "arguments": arguments or {}}).encode()
         # A 409 hands out the CSRF session id to retry with; it changes when
-        # Transmission restarts, so allow one retry per call.
+        # Transmission restarts, so allow one retry per call. A redirect's
+        # target is used for that retry, but kept only once it has answered
+        # (a redirect to a maintenance page mustn't stick).
+        url = self.url
         for _ in range(2):
-            headers = {"Content-Type": "application/json"}
+            self.moved_to = ""
+            headers = {"Content-Type": "application/json", "User-Agent": f"transmission-mqtt/{VERSION}"}
             if self.session_id:
                 headers["X-Transmission-Session-Id"] = self.session_id
             if self.auth:
                 headers["Authorization"] = self.auth
-            req = urllib.request.Request(self.url, data=body, headers=headers, method="POST")
+            req = urllib.request.Request(url, data=body, headers=headers, method="POST")
             try:
-                with urllib.request.urlopen(req, timeout=self.timeout, context=self.ssl_ctx) as resp:
+                with self.opener.open(req, timeout=self.timeout) as resp:
                     reply = json.load(resp)
             except urllib.error.HTTPError as err:
                 if err.code == 409 and err.headers.get("X-Transmission-Session-Id"):
                     self.session_id = err.headers["X-Transmission-Session-Id"]
+                    url = self.moved_to or url
                     continue
                 if err.code == 401:
-                    raise TransmissionError("Transmission refused the username or password") from err
-                raise TransmissionError(f"{method}: HTTP {err.code}") from err
+                    raise TransmissionError(
+                        f"{err.geturl()} refused the username or password") from err
+                hint = ""
+                if err.code in (404, 405):
+                    hint = " (is path right? Transmission's default is /transmission/rpc)"
+                raise TransmissionError(f"{method}: {_describe(err)}{hint}") from err
             except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError) as err:
                 raise TransmissionError(f"{method}: {err}") from err
             if reply.get("result") != "success":
                 raise TransmissionError(f"{method}: {reply.get('result')}")
+            url = self.moved_to or url
+            if url != self.url:
+                # Use the new address from now on, and say so once, so the
+                # options can be corrected.
+                log.warning("%s redirects to %s; set host, port, path and ssl to match it",
+                            self.url, url)
+                self.url = url
             return reply.get("arguments", {})
         raise TransmissionError(f"{method}: no session id after a 409")
 

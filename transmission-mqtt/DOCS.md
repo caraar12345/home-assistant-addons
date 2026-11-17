@@ -43,7 +43,7 @@ new ones. To keep the old IDs (and their history, since the units match):
 1. Delete the Transmission integration's entry for this server
    (**Settings > Devices & services > Transmission**).
 2. Set this app's `name` to the integration entry's name (e.g.
-   `RapidSeedbox Transmission`) and start it.
+   `Seedbox Transmission`) and start it.
 
 If the app was already running, delete its device under **MQTT** and restart
 the app to have it rediscovered.
@@ -55,7 +55,7 @@ the app to have it rediscovered.
 | `name` | `Transmission` | Device name. Entity IDs and MQTT topics come from it, so renaming creates a new device. |
 | `host` | | Transmission server's hostname or IP. Required. |
 | `port` | `9091` | RPC port. |
-| `path` | `/transmission/rpc` | RPC path. |
+| `path` | `/transmission/rpc` | RPC path. If the server redirects it, the app follows (same host only) and logs the address to set instead. |
 | `ssl` | `false` | Use HTTPS. |
 | `verify_ssl` | `true` | Check the server's certificate over HTTPS. |
 | `username` / `password` | | RPC credentials, if authentication is on. Without `ssl` they're sent unencrypted (HTTP basic auth), and the app logs a warning. |
@@ -66,6 +66,16 @@ the app to have it rediscovered.
 | `mqtt_host`, `mqtt_port`, `mqtt_username`, `mqtt_password` | | A broker to use instead of the one Home Assistant provides. With `mqtt_host` set, only these are used (no username means an anonymous connection). |
 | `discovery_prefix` | `homeassistant` | MQTT discovery prefix. |
 | `log_level` | `info` | `debug`, `info`, `warning` or `error`. |
+
+## Troubleshooting
+
+When a request fails, the warning names the URL that answered, its `Server`
+header and the start of its reply. Transmission itself answers a new client
+with 409 (handled), a bad login with 401 and an unknown path with 404. A 405,
+or a reply from nginx or another proxy, means something in front of
+Transmission answered: check `path`, `port` and `ssl` against the address
+your seedbox gives for RPC (often the web UI's address with `web/` swapped
+for `rpc`).
 
 ## MQTT topics
 
