@@ -182,7 +182,7 @@ class _KeepPost(urllib.request.HTTPRedirectHandler):
         old, new = urllib.parse.urlsplit(req.full_url), urllib.parse.urlsplit(newurl)
         if code not in (301, 302, 303, 307, 308) or new.hostname != old.hostname:
             return None
-        if old.scheme == "https" and new.scheme != "https":
+        if new.scheme not in ("http", "https") or (old.scheme == "https" and new.scheme != "https"):
             return None
         self.on_move(newurl)
         # Leave Host out so urllib writes the new one (the port may differ).
