@@ -1,0 +1,19 @@
+#!/command/with-contenv bashio
+# shellcheck shell=bash
+# ==============================================================================
+# transmission-mqtt add-on: run the bridge (it reads /data/options.json itself)
+# ==============================================================================
+# The broker comes from Home Assistant's MQTT service unless the options name
+# one; the bridge prefers the options over these.
+if bashio::services.available mqtt; then
+  MQTT_HOST=$(bashio::services mqtt host)
+  MQTT_PORT=$(bashio::services mqtt port)
+  MQTT_USERNAME=$(bashio::services mqtt username)
+  MQTT_PASSWORD=$(bashio::services mqtt password)
+  export MQTT_HOST MQTT_PORT MQTT_USERNAME MQTT_PASSWORD
+fi
+BUILD_VERSION=$(bashio::addon.version)
+export BUILD_VERSION
+
+bashio::log.info 'Starting transmission-mqtt...'
+exec python3 /opt/transmission-mqtt/transmission_mqtt.py

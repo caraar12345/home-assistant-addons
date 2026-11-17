@@ -47,6 +47,7 @@ env:
     ma-ingress-proxy
     prometheus
     scanservjs
+    transmission-mqtt
     vm-hub5-exporter
 
 permissions:
