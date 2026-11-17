@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import queue
+from collections import deque
 import re
 import ssl
 import time
@@ -44,6 +45,9 @@ SOURCE_URL = "https://github.com/caraar12345/home-assistant-addons/tree/main/tra
 # How long to wait after a switch command before polling, as the core
 # integration does (Transmission applies some changes asynchronously).
 AFTER_WRITE_SLEEP = 2
+
+# Torrent events kept for publishing while the MQTT broker is unreachable.
+EVENT_BUFFER = 100
 
 # Transmission's numeric torrent status, named as transmission-rpc names them
 # (and so as the core integration reports them).
@@ -337,6 +341,9 @@ class Bridge:
         self.all_ids: dict[int, dict] = {}
         self.completed_ids: set[int] = set()
         self.started_ids: set[int] = set()
+        # Events seen while MQTT is down wait here (oldest dropped past the
+        # limit) and go out once it's back; states are simply republished.
+        self.pending_events: deque[dict] = deque(maxlen=EVENT_BUFFER)
 
         base = cfg.base_topic
         self.t_bridge = f"{base}/bridge"
@@ -483,9 +490,9 @@ class Bridge:
     def torrent_events(self, torrents: list[dict]) -> None:
         def fire(kind: str, t: dict) -> None:
             log.info("Torrent %s: %s", kind, t.get("name"))
-            self.pub(self.t_event, {"event_type": kind, "name": t.get("name"), "id": t.get("id"),
+            self.pending_events.append({"event_type": kind, "name": t.get("name"), "id": t.get("id"),
                                     "download_path": t.get("downloadDir") or "",
-                                    "labels": t.get("labels") or []}, retain=False)
+                                    "labels": t.get("labels") or []})
 
         completed = {t["id"]: t for t in torrents if _torrent_status(t) == "seeding"}
         started = {t["id"]: t for t in torrents if _torrent_status(t) == "downloading"}
@@ -502,6 +509,11 @@ class Bridge:
                     fire("removed", t)
         self.seen_first = True
         self.completed_ids, self.started_ids, self.all_ids = set(completed), set(started), current
+        self.flush_events()
+
+    def flush_events(self) -> None:
+        while self.pending_events and self.client.is_connected():
+            self.pub(self.t_event, self.pending_events.popleft(), retain=False)
 
     # Commands
     def command(self, key: str, payload: str) -> None:
