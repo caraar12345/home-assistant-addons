@@ -43,7 +43,7 @@ new ones. To keep the old IDs (and their history, since the units match):
 1. Delete the Transmission integration's entry for this server
    (**Settings > Devices & services > Transmission**).
 2. Set this app's `name` to the integration entry's name (e.g.
-   `RapidSeedbox Transmission`) and start it.
+   `Seedbox Transmission`) and start it.
 
 If the app was already running, delete its device under **MQTT** and restart
 the app to have it rediscovered.
