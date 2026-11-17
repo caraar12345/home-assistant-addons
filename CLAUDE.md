@@ -129,7 +129,9 @@ unrelated workflow edits out of add-on PRs.
 - **MQTT add-ons**: publish through MQTT discovery as one device, set
   availability so entities go unavailable when the source or the add-on is
   down, and match the names and units of the equivalent core integration
-  where there is one (as `transmission-mqtt` does) so history carries over.
+  where there is one (as `transmission-mqtt` does), so the new entities can
+  take over the old entity IDs and their history once the integration's
+  entry is deleted (its DOCS.md describes the steps).
 - **Labels**: keep the Dockerfile's `io.hass.*` / `org.opencontainers.*`
   block; the workflow passes every `BUILD_*` argument it uses.
 - **Writing**: DOCS.md and option descriptions in plain, specific sentences
@@ -150,8 +152,12 @@ There's no repo-wide test suite. Before opening a PR:
   builds both arches; it doesn't run the add-on.
 - `ma-ingress-proxy/test/` has a compose-based smoke test harness standing in
   for the Supervisor's ingress network (see its `run_tests.sh`).
-- On the Home Assistant box, a local copy can be installed as
-  `local_<slug>`: `ha supervisor reload`, `ha addon update local_<slug>`,
+- On the Home Assistant box, a copy in `/addons/<slug>` runs as
+  `local_<slug>`. Delete the `image` line from that copy's `config.yaml`
+  first, or the Supervisor pulls the published image instead of building
+  your change (never commit it removed). Then `ha supervisor reload`,
+  `ha addon install local_<slug>` (or `ha addon update local_<slug>` if it's
+  already installed), `ha addon start local_<slug>` and
   `ha addon logs local_<slug>`.
 - After merge, check the published add-on updates in Home Assistant and its
   logs look right.
