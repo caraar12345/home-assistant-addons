@@ -1,6 +1,6 @@
 ---
 name: vm-hub5-exporter
-version: 1.0.0
+version: 1.0.1
 slug: vm-hub5-exporter
 description: Prometheus exporter for the Virgin Media (GB) Hub 5 only
 url: https://github.com/caraar12345/home-assistant-addons/tree/main/vm-hub5-exporter
